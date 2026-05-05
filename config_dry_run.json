@@ -1,5 +1,5 @@
 {
-  "max_open_trades": 5,
+  "max_open_trades": 20,
   "stake_currency": "USDT",
   "stake_amount": "unlimited",
   "tradable_balance_ratio": 0.75,
@@ -38,9 +38,9 @@
   "pairlists": [
     {
       "method": "VolumePairList",
-      "number_assets": 5,
+      "number_assets": 50,
       "sort_key": "quoteVolume",
-      "min_value": 5000000,
+      "min_value": 1000000,
       "refresh_period": 3600
     },
     {

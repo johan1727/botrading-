@@ -916,22 +916,47 @@ class GeminiStrategy(IStrategy):
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # Prefiltro de ahorro: solo llamar Gemini si hay oportunidad técnica clara
-        # Esto evita gastar tokens en velas neutras
+        # ── NIVEL 1: prefiltro binario (gratis, local) ─────────────────────
+        # Elimina pares sin ninguna señal técnica mínima
         last = dataframe.iloc[-1]
-        pass_filter = (
-            (last['rsi'] < 42 and last['stoch_rsi_k'] < 35) or
-            (last['bb_pct'] < 25 and last['volume_ratio'] > 0.8) or
-            (last['macd_hist'] > 0 and last['rsi'] < 52 and last['volume_ratio'] > 1.0) or
-            (last['volume_ratio'] > 1.8 and last['rsi'] < 60) or
-            (last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'MORNING_STAR'] and last['volume_ratio'] > 1.0) or
-            (last['dist_support_pct'] < 1.0 and last['rsi'] < 55)
+        pass_l1 = (
+            last['rsi'] < 50 or
+            last['stoch_rsi_k'] < 40 or
+            last['bb_pct'] < 40 or
+            last['macd_hist'] > 0 or
+            last['volume_ratio'] > 1.2 or
+            last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'MORNING_STAR'] or
+            last['dist_support_pct'] < 2.0
         )
-
-        if not pass_filter:
+        if not pass_l1:
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
+        # ── NIVEL 2: scoring técnico (gratis, local) ────────────────────────
+        # Suma puntos — máximo ~13 pts
+        score = 0
+        score += 2 if last['rsi'] < 40 else (1 if last['rsi'] < 48 else 0)
+        score += 2 if last['stoch_rsi_k'] < 30 else (1 if last['stoch_rsi_k'] < 40 else 0)
+        score += 2 if last['bb_pct'] < 25 else (1 if last['bb_pct'] < 35 else 0)
+        score += 2 if (last['macd_hist'] > 0 and last['volume_ratio'] > 1.0) else (1 if last['macd_hist'] > 0 else 0)
+        score += 1 if last['volume_ratio'] > 1.3 else 0
+        score += 2 if last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'MORNING_STAR'] else 0
+        score += 1 if last['dist_support_pct'] < 1.0 else 0
+        score += 1 if last.get('ema_signal') == 'ABOVE' else 0
+
+        logger.debug(f"[SCORE] {pair} | score={score}/13")
+
+        if score < 4:
+            # Sin señal suficiente: skip
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+        elif score < 6:
+            # Score medio: BUY técnico directo sin llamar a la IA (ahorra calls)
+            logger.info(f"[SCORE-BUY] {pair} | score={score} → BUY local sin IA")
+            dataframe.loc[dataframe.index[-1], "enter_long"] = 1
+            return dataframe
+
+        # score >= 6: candidato fuerte → confirmar con Groq/Gemini
         # Codificar estado para Q-Learning
         q_state = self._encode_state(dataframe)
 
