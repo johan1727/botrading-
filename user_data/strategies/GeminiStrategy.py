@@ -837,7 +837,22 @@ class GeminiStrategy(IStrategy):
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # Sin prefiltro: con 5 pares Gemini analiza cada vela (1440 req/dia)
+        # Prefiltro SUAVE: con 200 pares, solo llamar Gemini si hay oportunidad técnica
+        # Pasa si cumple AL MENOS 1 condición (muy permisivo)
+        last = dataframe.iloc[-1]
+        pass_filter = (
+            last['rsi'] < 45 or                    # RSI bajo = posible rebote
+            last['stoch_rsi_k'] < 35 or            # StochRSI bajo
+            last['bb_pct'] < 35 or                 # Precio en zona baja de BB
+            (last['macd_hist'] > 0 and last['rsi'] < 55) or  # MACD alcista + RSI no alto
+            last['volume_ratio'] > 1.3 or          # Volumen inusual (algo pasa)
+            last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'DOJI', 'MORNING_STAR'] or
+            last['dist_support_pct'] < 1.5         # Cerca de soporte
+        )
+
+        if not pass_filter:
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
 
         # Codificar estado para Q-Learning
         q_state = self._encode_state(dataframe)
