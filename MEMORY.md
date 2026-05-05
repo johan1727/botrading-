@@ -346,6 +346,101 @@
 
 ---
 
+## v1.6.0 — Pool multi-proveedor + Sistema híbrido de filtros (5 Mayo 2026)
+
+### Cambios realizados
+
+**Pool unificado de APIs gratuitas (Gemini + Groq + OpenRouter):**
+- 7 claves Gemini (expiradas, marcadas como agotadas al arrancar)
+- 9 claves Groq (llama-3.3-70b-versatile, 1000 req/día c/u = 9000/día)
+- 1 clave OpenRouter (google/gemma-4-26b-a4b-it:free, 2000/día)
+- Total útil: ~11,000 calls/día 100% gratuitas
+- Rotación automática por proveedor con contadores diarios
+- Reset a medianoche UTC
+
+**Sistema híbrido 2 niveles (reduce llamadas API ~80%):**
+- Nivel 1: prefiltro binario local (RSI, MACD, volumen, soporte) — gratis
+- Nivel 2: scoring 0-17 pts — gratis
+  - score < 6: skip
+  - score 6-7: BUY local sin IA (ahorra call)
+  - score ≥ 8: confirmar con Groq/Gemini
+
+**Filtros duros nuevos (en orden de ejecución):**
+1. Autopausa (drawdown diario)
+2. Régimen CAOS/BAJISTA_VOLATIL
+3. Blacklist dinámica: ≥3 losses en 24h → par bloqueado el día
+4. Cooldown 2h: tras cualquier pérdida, no reentrar al mismo par
+5. Nivel 1: prefiltro binario técnico
+6. Filtro EMA: no comprar si EMA20 < EMA50 y RSI > 55
+7. Filtro volumen vela: vela actual debe tener ≥30% volumen promedio 20 velas
+8. Filtro ADX: skip si ADX < 20 y volumen < 1.3x (mercado lateral)
+9. Filtro RSI confirmación: RSI debe venir bajando (vela anterior)
+10. Nivel 2: scoring técnico
+
+**Pares y configuración:**
+- Pares monitoreados: 100 (VolumePairList, min $1M volumen)
+- Blacklist estática: 17 entradas (stables, leveraged, 9 pares tóxicos detectados)
+- max_open_trades: 5 (calidad > cantidad, 20% capital c/u)
+
+### Razonamiento
+Con 83 trades reales el WR era 49%. Análisis mostró que:
+- 9 pares acumulaban el 70% de las pérdidas
+- Muchos trades se reabrían inmediatamente tras pérdida
+- Entradas en mercados laterales y velas sin volumen
+
+### Parámetros modificados
+| Parámetro | Antes | Después | Razón |
+|---|---|---|---|
+| Proveedores API | Solo Gemini | Gemini+Groq+OpenRouter | Gratuitos, 11k calls/día |
+| Pares | 10 → 50 → 100 | 100 | Más oportunidades |
+| max_open_trades | 5 → 20 → 5 | 5 | Calidad > cantidad |
+| Score BUY local | ≥5 | ≥6 | Más estricto |
+| Score Groq confirm | ≥7 | ≥8 | Más estricto |
+| Umbral volumen score | >1.3x | >1.5x | Más estricto |
+
+---
+
+## v1.7.0 — Indicadores avanzados de suelos/techos (5 Mayo 2026)
+
+### Cambios realizados
+
+**Morning Star y Evening Star en detect_candle_pattern:**
+- Morning Star: patrón de 3 velas (bajista + pequeña + alcista que cierra sobre midpoint) = señal de SUELO
+- Evening Star: patrón de 3 velas (alcista + pequeña + bajista que cierra bajo midpoint) = señal de TECHO
+- Evening Star añadido como señal de SALIDA automática en populate_exit_trend
+- Ambos patrones suman +2 pts al score de entrada (Morning Star)
+
+**VWAP (Volume Weighted Average Price):**
+- Precio institucional real del día
+- `dist_vwap_pct`: distancia % del precio al VWAP
+- +1 pt al score si precio está >1% bajo el VWAP (zona de compra institucional)
+- Incluido en prompt a Groq como contexto adicional
+
+**Bollinger Band Squeeze:**
+- `bb_width`: ancho de bandas como % del precio
+- `bb_squeeze = True` si bb_width < 60% de su media de 20 velas
+- +1 pt al score si hay squeeze + MACD alcista (explosión inminente)
+
+**Divergencia alcista RSI (rsi_bull_div):**
+- Precio hace nuevo mínimo pero RSI hace mínimo más alto = vendedores agotados = suelo próximo
+- +2 pts al score si detectada (señal de mayor peso)
+
+### Score máximo
+- Antes: 13 pts
+- Ahora: 17 pts (añadidos: rsi_bull_div +2, dist_vwap +1, bb_squeeze +1, rsi>35 +1)
+
+### Estado
+- ✅ Bot corriendo con todos los filtros activos
+- ✅ max_open_trades: 5 (20% capital por trade)
+- ✅ WR esperado: 62-67% (desde 49% base)
+- ✅ ~2,600 calls/día estimadas (dentro de los 11,000 gratuitos)
+- ⏳ Pendiente: monitorear 48h para validar WR real con nuevos filtros
+- ⏳ Pendiente: take-profit escalonado (cerrar 50% en +1.5%, dejar correr el resto)
+- ⏳ Pendiente: trailing stop desactivado en mercados laterales (ADX < 25)
+- ⏳ Pendiente: deploy Railway para 24/7
+
+---
+
 ## TEMPLATE para futuras entradas (copiar cuando hagas cambios)
 
 ## vX.X.X — [Descripción] (Fecha)
