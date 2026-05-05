@@ -946,17 +946,17 @@ class GeminiStrategy(IStrategy):
 
         logger.debug(f"[SCORE] {pair} | score={score}/13")
 
-        if score < 4:
+        if score < 5:
             # Sin señal suficiente: skip
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
-        elif score < 6:
+        elif score < 7:
             # Score medio: BUY técnico directo sin llamar a la IA (ahorra calls)
-            logger.info(f"[SCORE-BUY] {pair} | score={score} → BUY local sin IA")
+            logger.info(f"[SCORE-BUY] {pair} | score={score} -> BUY local sin IA")
             dataframe.loc[dataframe.index[-1], "enter_long"] = 1
             return dataframe
 
-        # score >= 6: candidato fuerte → confirmar con Groq/Gemini
+        # score >= 7: candidato fuerte → confirmar con Groq/Gemini
         # Codificar estado para Q-Learning
         q_state = self._encode_state(dataframe)
 
