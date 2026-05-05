@@ -242,6 +242,9 @@ class GeminiStrategy(IStrategy):
         self._daily_loss_usd = 0.0        # pérdida acumulada hoy en USD
         self._daily_loss_date = None      # fecha del último reset de pérdidas
         self._stoploss_cooldown: dict = {}  # par -> timestamp del último stop-loss
+        self._loss_cooldown: dict = {}    # par -> timestamp hasta el que no reentrar (2h)
+        self._daily_losses: dict = {}     # par -> [timestamps] de losses en 24h
+        self._MAX_DAILY_LOSSES = 3        # max losses por par antes de bloquearlo el dia
         # Memoria de aprendizaje: últimos 50 resultados de trades
         self._trade_memory: list = []  # {pair, accion, confianza, rsi, profit_usd, won, razon}
         self._daily_trades_lock = threading.Lock()
@@ -821,12 +824,26 @@ class GeminiStrategy(IStrategy):
                     continue
                 o, h, l, c = df["open"].iloc[i], df["high"].iloc[i], df["low"].iloc[i], df["close"].iloc[i]
                 po, ph, pl, pc = df["open"].iloc[i-1], df["high"].iloc[i-1], df["low"].iloc[i-1], df["close"].iloc[i-1]
+                po2, pc2 = df["open"].iloc[i-2], df["close"].iloc[i-2]
                 body = abs(c - o)
                 prev_body = abs(pc - po)
+                body2 = abs(pc2 - po2)
                 upper_wick = h - max(o, c)
                 lower_wick = min(o, c) - l
+                # Morning Star — suelo de 3 velas (bajista + pequeña + alcista)
+                if (pc2 < po2 and body2 > 0 and
+                        body < (h - l) * 0.35 and
+                        c > o and
+                        c > (po2 + pc2) / 2):
+                    patterns.append("MORNING_STAR")
+                # Evening Star — techo de 3 velas (alcista + pequeña + bajista)
+                elif (pc2 > po2 and body2 > 0 and
+                        body < (h - l) * 0.35 and
+                        c < o and
+                        c < (po2 + pc2) / 2):
+                    patterns.append("EVENING_STAR")
                 # Hammer (martillo) — reversión alcista
-                if lower_wick > body * 2 and upper_wick < body * 0.5 and c > o:
+                elif lower_wick > body * 2 and upper_wick < body * 0.5 and c > o:
                     patterns.append("HAMMER")
                 # Shooting star — reversión bajista
                 elif upper_wick > body * 2 and lower_wick < body * 0.5 and c < o:
@@ -888,6 +905,21 @@ class GeminiStrategy(IStrategy):
             lambda x: "SOBREVENTA" if x < 20 else ("SOBRECOMPRA" if x > 80 else "NEUTRO")
         )
 
+        # VWAP — indicador institucional (precio ponderado por volumen)
+        typical_price = (dataframe["high"] + dataframe["low"] + dataframe["close"]) / 3
+        dataframe["vwap"] = (typical_price * dataframe["volume"]).cumsum() / dataframe["volume"].cumsum()
+        dataframe["dist_vwap_pct"] = (dataframe["close"] - dataframe["vwap"]) / dataframe["vwap"] * 100
+
+        # Bollinger Band Squeeze — bandas comprimidas = explosion inminente
+        dataframe["bb_width"] = (dataframe["bb_upper"] - dataframe["bb_lower"]) / dataframe["bb_mid"] * 100
+        dataframe["bb_squeeze"] = dataframe["bb_width"] < dataframe["bb_width"].rolling(20).mean() * 0.6
+
+        # Divergencia alcista RSI — precio hace minimo mas bajo pero RSI no = suelo proximo
+        dataframe["rsi_bull_div"] = (
+            (dataframe["close"] < dataframe["close"].shift(3)) &
+            (dataframe["rsi"] > dataframe["rsi"].shift(3) + 3)
+        ).map({True: "BULL_DIV", False: "OK"})
+
         dataframe["gemini_buy"] = 0
         dataframe["gemini_sell"] = 0
         dataframe["gemini_confidence"] = 0.0
@@ -916,6 +948,23 @@ class GeminiStrategy(IStrategy):
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
+        # ── Filtro 3: blacklist dinámica (3 losses en 24h = bloqueado) ────────
+        now_ts = time.time()
+        pair_losses_24h = [t for t in self._daily_losses.get(pair, []) if now_ts - t < 86400]
+        self._daily_losses[pair] = pair_losses_24h
+        if len(pair_losses_24h) >= self._MAX_DAILY_LOSSES:
+            logger.debug(f"[BLACKLIST-DIN] {pair} bloqueado: {len(pair_losses_24h)} losses en 24h")
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+
+        # ── Filtro 2: cooldown 2h tras pérdida ───────────────────────────────
+        loss_cooldown_until = self._loss_cooldown.get(pair, 0)
+        if now_ts < loss_cooldown_until:
+            mins_left = (loss_cooldown_until - now_ts) / 60
+            logger.debug(f"[LOSS-COOLDOWN] {pair} en cooldown, faltan {mins_left:.0f} min")
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+
         # ── NIVEL 1: prefiltro binario (gratis, local) ─────────────────────
         # Elimina pares sin ninguna señal técnica mínima
         last = dataframe.iloc[-1]
@@ -932,6 +981,34 @@ class GeminiStrategy(IStrategy):
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
+        # ── Filtro 1: tendencia EMA — no comprar contra tendencia bajista ────
+        ema_trending_up = last['ema20'] > last['ema50']
+        if not ema_trending_up and last['rsi'] > 55:
+            logger.debug(f"[EMA-FILTER] {pair} contra tendencia (EMA20={last['ema20']:.4f}<EMA50={last['ema50']:.4f}) RSI={last['rsi']:.0f}")
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+
+        # ── Filtro 4: volumen vela actual ────────────────────────────────────
+        vol_mean_20 = dataframe['volume'].rolling(20).mean().iloc[-1]
+        if vol_mean_20 > 0 and last['volume'] < vol_mean_20 * 0.3:
+            logger.debug(f"[VOL-FILTER] {pair} vela sin volumen ({last['volume']:.0f} < {vol_mean_20*0.3:.0f})")
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+
+        # ── Filtro 5: ADX minimo 20 — no entrar en mercados laterales ────────
+        if last['adx'] < 20 and last['volume_ratio'] < 1.3:
+            logger.debug(f"[ADX-FILTER] {pair} mercado lateral ADX={last['adx']:.0f} vol={last['volume_ratio']:.1f}x")
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+
+        # ── Filtro 6: confirmacion tendencia vela anterior ──────────────────
+        prev = dataframe.iloc[-2]
+        rsi_confirma = last['rsi'] < 40 or (prev['rsi'] > last['rsi'] and last['rsi'] < 52)
+        if not rsi_confirma:
+            logger.debug(f"[RSI-CONFIRM] {pair} RSI no viene bajando prev={prev['rsi']:.0f} now={last['rsi']:.0f}")
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+
         # ── NIVEL 2: scoring técnico (gratis, local) ────────────────────────
         # Suma puntos — máximo ~13 pts
         score = 0
@@ -944,8 +1021,11 @@ class GeminiStrategy(IStrategy):
         score += 2 if last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'MORNING_STAR'] else 0
         score += 1 if last['dist_support_pct'] < 1.0 else 0
         score += 1 if last.get('ema_signal') == 'ABOVE' else 0
+        score += 2 if last.get('rsi_bull_div') == 'BULL_DIV' else 0
+        score += 1 if last.get('dist_vwap_pct', 0) < -1.0 else 0
+        score += 1 if (last.get('bb_squeeze', False) and last['macd_hist'] > 0) else 0
 
-        logger.debug(f"[SCORE] {pair} | score={score}/13")
+        logger.debug(f"[SCORE] {pair} | score={score}/17")
 
         if score < 6:
             # Sin señal suficiente: skip
@@ -1082,6 +1162,12 @@ class GeminiStrategy(IStrategy):
         last_rsi = float(dataframe["rsi"].iloc[-1])
         if last_rsi > self.rsi_sell_threshold.value:
             dataframe.loc[dataframe.index[-1], "gemini_sell"] = 1
+
+        # Evening Star — techo de 3 velas detectado = salir antes de la caida
+        last_candle = dataframe["candle_pattern"].iloc[-1]
+        if last_candle == "EVENING_STAR":
+            dataframe.loc[dataframe.index[-1], "gemini_sell"] = 1
+            logger.info(f"[SELL] EVENING_STAR detectado en {pair} — salida por techo")
 
         if decision and decision.get("accion") in ["SELL", "CLOSE"]:
             dataframe.loc[dataframe.index[-1], "gemini_sell"] = 1
@@ -1349,6 +1435,17 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
             self._stoploss_cooldown[pair] = time.time()
             self._daily_loss_usd += abs(profit_usd)
             logger.info(f"[COOLDOWN] {pair} en cooldown 15min tras stop-loss. Perdida hoy: ${self._daily_loss_usd:.2f}")
+
+        # Filtro 2: cooldown 2h si cualquier pérdida (no solo stop-loss)
+        if not ganó:
+            self._loss_cooldown[pair] = time.time() + 7200
+            logger.info(f"[LOSS-COOLDOWN] {pair} en cooldown 2h tras perdida {profit_pct:.2f}%")
+            # Filtro 3: registrar para blacklist dinámica
+            self._daily_losses.setdefault(pair, []).append(time.time())
+            recent = [t for t in self._daily_losses[pair] if time.time() - t < 86400]
+            self._daily_losses[pair] = recent
+            if len(recent) >= self._MAX_DAILY_LOSSES:
+                logger.warning(f"[BLACKLIST-DIN] {pair} bloqueado automaticamente: {len(recent)} losses en 24h")
 
         # Guardar en memoria de aprendizaje con RSI y contexto para detección de patrones
         last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair)), {})
