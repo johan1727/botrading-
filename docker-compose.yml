@@ -1,0 +1,16 @@
+version: "3"
+services:
+  freqtrade:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./user_data:/freqtrade/user_data
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    command: >
+      freqtrade trade
+      --config config_dry_run.json
+      --strategy GeminiStrategy
+      --logfile user_data/logs/freqtrade.log

@@ -1,0 +1,9 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "freqtrade trade --config config_dry_run.json --strategy GeminiStrategy --logfile user_data/logs/freqtrade.log"
+restartPolicyType = "always"
+healthcheckPath = "/"
+healthcheckTimeout = 300

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GeminiBot Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', sans-serif; }
+  header { background: #161b22; padding: 16px 24px; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 1.2rem; font-weight: 600; }
+  .badge { background: #238636; color: #fff; font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; }
+  .badge.red { background: #da3633; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
+  .card .label { color: #8b949e; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .card .value { font-size: 1.6rem; font-weight: 700; }
+  .card .value.green { color: #3fb950; }
+  .card .value.red { color: #f85149; }
+  .card .value.yellow { color: #d29922; }
+  .section-title { font-size: 0.9rem; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+  th { background: #21262d; color: #8b949e; font-size: 0.75rem; text-transform: uppercase; padding: 10px 14px; text-align: left; }
+  td { padding: 10px 14px; font-size: 0.85rem; border-top: 1px solid #21262d; }
+  .win { color: #3fb950; }
+  .loss { color: #f85149; }
+  .neutral { color: #8b949e; }
+  .regime-pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; background: #1f6feb33; color: #58a6ff; border: 1px solid #1f6feb; }
+  .error-msg { color: #f85149; font-size: 0.85rem; padding: 12px; background: #da363318; border: 1px solid #da363340; border-radius: 6px; margin-bottom: 16px; }
+  .refresh-bar { display: flex; align-items: center; gap: 8px; color: #8b949e; font-size: 0.8rem; margin-bottom: 16px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .adx-bar { height: 4px; background: #21262d; border-radius: 2px; margin-top: 6px; }
+  .adx-fill { height: 4px; border-radius: 2px; background: #3fb950; }
+  .trade-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 4px; }
+  .trade-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 18px; position: relative; overflow: hidden; }
+  .trade-card.winning { border-left: 4px solid #3fb950; }
+  .trade-card.losing  { border-left: 4px solid #f85149; }
+  .trade-card .pair-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 10px; }
+  .trade-card .pnl-big { font-size: 2rem; font-weight: 800; line-height: 1; }
+  .trade-card .pnl-usd { font-size: 0.95rem; margin-top: 2px; opacity: 0.8; }
+  .trade-card .price-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 0.82rem; color: #8b949e; }
+  .trade-card .price-entry { color: #8b949e; }
+  .trade-card .price-arrow { font-size: 1.1rem; }
+  .trade-card .price-current { font-weight: 600; }
+  .trade-card .meta-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.78rem; color: #8b949e; }
+  .trade-card .progress-bar { height: 3px; background: #21262d; border-radius: 2px; margin-top: 10px; }
+  .trade-card .progress-fill { height: 3px; border-radius: 2px; transition: width 0.5s; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tab { padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; background: #21262d; color: #8b949e; border: 1px solid transparent; }
+  .tab.active { background: #1f6feb22; color: #58a6ff; border-color: #1f6feb; }
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:1.4rem">🤖</span>
+  <h1>GeminiBot Dashboard</h1>
+  <span class="badge" id="bot-status">CONECTANDO...</span>
+  <span style="margin-left:auto; color:#8b949e; font-size:0.8rem" id="last-update">—</span>
+</header>
+
+<div class="container">
+  <div class="refresh-bar">
+    <div class="dot"></div>
+    Actualización automática cada 15s &nbsp;|&nbsp;
+    API: <span id="api-url" style="color:#58a6ff">http://localhost:8080</span>
+    &nbsp;|&nbsp;
+    <a href="#" onclick="changeApiUrl()" style="color:#58a6ff">Cambiar</a>
+  </div>
+
+  <div id="error-box" class="error-msg" style="display:none"></div>
+
+  <!-- Métricas principales -->
+  <div class="grid" id="metrics">
+    <div class="card"><div class="label">Balance</div><div class="value" id="m-balance">—</div></div>
+    <div class="card"><div class="label">P&L Hoy</div><div class="value" id="m-pnl">—</div></div>
+    <div class="card"><div class="label">Trades abiertos</div><div class="value" id="m-open">—</div></div>
+    <div class="card"><div class="label">Trades totales</div><div class="value" id="m-total">—</div></div>
+    <div class="card"><div class="label">Win rate</div><div class="value" id="m-winrate">—</div></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('open')">Trades Abiertos</div>
+    <div class="tab" onclick="showTab('closed')">Trades Cerrados</div>
+  </div>
+
+  <!-- Trades abiertos -->
+  <div id="tab-open">
+    <div class="section-title">Posiciones abiertas</div>
+    <div id="open-trades-cards"></div>
+    <table style="margin-top:16px">
+      <thead><tr>
+        <th>Par</th><th>Entrada → Actual</th><th>Movimiento</th><th>P&L %</th><th>P&L $</th><th>Capital</th><th>Duración</th>
+      </tr></thead>
+      <tbody id="open-trades-body"><tr><td colspan="7" class="neutral" style="text-align:center;padding:20px">Cargando...</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- Trades cerrados -->
+  <div id="tab-closed" style="display:none">
+    <div class="section-title">Últimos 20 trades cerrados</div>
+    <table>
+      <thead><tr>
+        <th>Par</th><th>Entrada</th><th>Cierre</th><th>Precio entrada → cierre</th><th>P&L %</th><th>P&L $</th><th>Motivo</th>
+      </tr></thead>
+      <tbody id="closed-trades-body"><tr><td colspan="7" class="neutral" style="text-align:center;padding:20px">Cargando...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let API = localStorage.getItem('ftApi') || 'http://localhost:8080';
+let USER = 'admin';
+let PASS = 'geminibot2026';
+document.getElementById('api-url').textContent = API;
+
+function changeApiUrl() {
+  const url = prompt('URL de la API Freqtrade:', API);
+  if (url) { API = url.trim(); localStorage.setItem('ftApi', API); document.getElementById('api-url').textContent = API; load(); }
+}
+
+function showTab(t) {
+  document.getElementById('tab-open').style.display = t === 'open' ? '' : 'none';
+  document.getElementById('tab-closed').style.display = t === 'closed' ? '' : 'none';
+  document.querySelectorAll('.tab').forEach((el, i) => el.classList.toggle('active', (i === 0 && t === 'open') || (i === 1 && t === 'closed')));
+}
+
+async function apiFetch(path) {
+  const r = await fetch(API + path, { headers: { 'Authorization': 'Basic ' + btoa(USER + ':' + PASS) } });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+function pnlClass(v) { return v > 0 ? 'win' : v < 0 ? 'loss' : 'neutral'; }
+function fmt(v, d=2) { return (v >= 0 ? '+' : '') + v.toFixed(d); }
+function dur(open_date) {
+  const s = Math.floor((Date.now() - new Date(open_date + 'Z')) / 1000);
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+async function load() {
+  const errBox = document.getElementById('error-box');
+  try {
+    const [status, profit, openTrades, closedTrades] = await Promise.all([
+      apiFetch('/api/v1/status'),
+      apiFetch('/api/v1/profit'),
+      apiFetch('/api/v1/status'),
+      apiFetch('/api/v1/trades?limit=20'),
+    ]);
+
+    errBox.style.display = 'none';
+    document.getElementById('bot-status').textContent = 'EN VIVO';
+    document.getElementById('bot-status').className = 'badge';
+    document.getElementById('last-update').textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es');
+
+    // Métricas
+    const bal = profit.profit_all_coin || 0;
+    const pnlToday = profit.profit_factor || 0;
+    const wins = profit.winning_trades || 0;
+    const total = profit.trade_count || 0;
+    const wr = total > 0 ? (wins / total * 100) : 0;
+
+    document.getElementById('m-balance').innerHTML = `<span class="${pnlClass(bal)}">$${(1000 + bal).toFixed(2)}</span>`;
+    document.getElementById('m-pnl').innerHTML = `<span class="${pnlClass(bal)}">${fmt(bal)}$</span>`;
+    document.getElementById('m-open').textContent = openTrades.length || 0;
+    document.getElementById('m-total').textContent = total;
+    document.getElementById('m-winrate').innerHTML = `<span class="${wr >= 50 ? 'green' : 'red'}">${wr.toFixed(1)}%</span>`;
+
+    // Trades abiertos — tarjetas visuales
+    const cards = document.getElementById('open-trades-cards');
+    const ob = document.getElementById('open-trades-body');
+    if (!openTrades.length) {
+      cards.innerHTML = '';
+      ob.innerHTML = '<tr><td colspan="7" class="neutral" style="text-align:center;padding:20px">Sin trades abiertos ahora mismo</td></tr>';
+    } else {
+      // Cards grandes arriba
+      cards.innerHTML = '<div class="trade-cards">' + openTrades.map(t => {
+        const pnlPct = parseFloat(t.profit_pct) * 100;
+        const pnlAbs = parseFloat(t.profit_abs);
+        const win = pnlPct >= 0;
+        const entryP = parseFloat(t.open_rate);
+        const currP  = parseFloat(t.current_rate);
+        const decimals = entryP > 100 ? 2 : entryP > 1 ? 4 : 6;
+        const movPct = ((currP - entryP) / entryP * 100);
+        const barW = Math.min(Math.abs(pnlPct) * 20, 100);
+        const barColor = win ? '#3fb950' : '#f85149';
+        return `<div class="trade-card ${win ? 'winning' : 'losing'}">
+          <div class="pair-name">${t.pair} <span style="font-size:0.75rem;color:#8b949e;font-weight:400">#${t.trade_id}</span></div>
+          <div class="pnl-big ${win ? 'win' : 'loss'}">${fmt(pnlPct)}%</div>
+          <div class="pnl-usd ${win ? 'win' : 'loss'}">${fmt(pnlAbs)} USDT sobre $${parseFloat(t.stake_amount).toFixed(2)} invertidos</div>
+          <div class="price-row">
+            <span class="price-entry">Entré: <b style="color:#e6edf3">${entryP.toFixed(decimals)}</b></span>
+            <span class="price-arrow">${win ? '📈' : '📉'}</span>
+            <span class="price-current ${win ? 'win' : 'loss'}">Ahora: ${currP.toFixed(decimals)}</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${barW}%;background:${barColor}"></div></div>
+          <div class="meta-row">
+            <span>Capital: $${parseFloat(t.stake_amount).toFixed(2)}</span>
+            <span>Abierto hace: ${dur(t.open_date)}</span>
+          </div>
+        </div>`;
+      }).join('') + '</div>';
+      // Tabla compacta debajo
+      ob.innerHTML = openTrades.map(t => {
+        const pnlPct = parseFloat(t.profit_pct) * 100;
+        const pnlAbs = parseFloat(t.profit_abs);
+        const entryP = parseFloat(t.open_rate);
+        const currP  = parseFloat(t.current_rate);
+        const decimals = entryP > 100 ? 2 : entryP > 1 ? 4 : 6;
+        const movPct = ((currP - entryP) / entryP * 100);
+        return `<tr>
+          <td><b>${t.pair}</b></td>
+          <td><span style="color:#8b949e">${entryP.toFixed(decimals)}</span> → <b style="color:#e6edf3">${currP.toFixed(decimals)}</b></td>
+          <td class="${pnlClass(movPct)}">${movPct >= 0 ? '▲' : '▼'} ${Math.abs(movPct).toFixed(3)}%</td>
+          <td class="${pnlClass(pnlPct)}" style="font-weight:700">${fmt(pnlPct)}%</td>
+          <td class="${pnlClass(pnlAbs)}">${fmt(pnlAbs)}$</td>
+          <td>$${parseFloat(t.stake_amount).toFixed(2)}</td>
+          <td class="neutral">${dur(t.open_date)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // Trades cerrados
+    const cb = document.getElementById('closed-trades-body');
+    const closed = (closedTrades.trades || []).filter(t => t.close_date);
+    if (!closed.length) {
+      cb.innerHTML = '<tr><td colspan="6" class="neutral" style="text-align:center;padding:20px">Sin trades cerrados aun</td></tr>';
+    } else {
+      cb.innerHTML = closed.slice(0,20).map(t => {
+        const pnlPct = parseFloat(t.profit_ratio) * 100;
+        const pnlAbs = parseFloat(t.profit_abs);
+        const entryP = parseFloat(t.open_rate);
+        const closeP = parseFloat(t.close_rate);
+        const decimals = entryP > 100 ? 2 : entryP > 1 ? 4 : 6;
+        const reason = t.exit_reason || '—';
+        const reasonColor = reason.includes('stop') ? '#f85149' : reason.includes('roi') ? '#3fb950' : '#8b949e';
+        return `<tr>
+          <td><b>${t.pair}</b></td>
+          <td class="neutral">${new Date(t.open_date+'Z').toLocaleString('es',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'})}</td>
+          <td class="neutral">${new Date(t.close_date+'Z').toLocaleString('es',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'})}</td>
+          <td><span style="color:#8b949e">${entryP.toFixed(decimals)}</span> → <b class="${pnlClass(pnlPct)}">${closeP.toFixed(decimals)}</b></td>
+          <td class="${pnlClass(pnlPct)}" style="font-weight:700">${fmt(pnlPct)}%</td>
+          <td class="${pnlClass(pnlAbs)}">${fmt(pnlAbs)}$</td>
+          <td style="color:${reasonColor}">${reason}</td>
+        </tr>`;
+      }).join('');
+    }
+
+  } catch(e) {
+    errBox.style.display = '';
+    errBox.textContent = 'No se puede conectar a la API de Freqtrade en ' + API + '. Asegúrate que el bot está corriendo. Error: ' + e.message;
+    document.getElementById('bot-status').textContent = 'DESCONECTADO';
+    document.getElementById('bot-status').className = 'badge red';
+  }
+}
+
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>

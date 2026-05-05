@@ -1,0 +1,53 @@
+# WINDSURF RULES — GeminiTradingBot
+# Este archivo define las reglas permanentes para este proyecto.
+# Windsurf las aplica en CADA conversación sin que tengas que repetirlas.
+
+## IDENTIDAD DEL PROYECTO
+- Nombre: gemini-trading-bot
+- Base: Fork de Freqtrade (github.com/freqtrade/freqtrade)
+- Propósito: Bot de trading crypto 24/7 con Gemini AI como cerebro de decisión
+- Exchange: Binance (Testnet primero, luego real)
+- Timeframe: 5 minutos
+- Deploy: Railway.app (free tier)
+- Notificaciones: Telegram Bot
+
+## STACK TÉCNICO FIJO — NO CAMBIAR
+- Python 3.11+
+- Freqtrade v2026.4 como framework base
+- google-generativeai SDK para Gemini 2.5 Flash-Lite
+- Modelo Gemini exacto: "gemini-2.5-flash-lite-preview-06-17"
+- Binance via CCXT (ya incluido en Freqtrade)
+- SQLite para persistencia (ya incluido en Freqtrade)
+- Telegram via Freqtrade built-in
+
+## ARCHIVOS CLAVE DEL PROYECTO
+- user_data/strategies/GeminiStrategy.py  ← ESTRATEGIA PRINCIPAL
+- config.json                              ← CONFIG PRINCIPAL
+- config_dry_run.json                      ← CONFIG PAPER TRADING
+- CONTEXT.md                               ← Contexto del proyecto
+- MEMORY.md                                ← Historial de decisiones
+
+## REGLAS DE CÓDIGO
+1. NUNCA modificar el core de Freqtrade, solo archivos en user_data/
+2. SIEMPRE manejar excepciones en llamadas a Gemini API (fallback = HOLD)
+3. SIEMPRE respetar rate limit de Gemini free tier: max 15 RPM
+4. NUNCA hardcodear API keys, siempre usar variables de entorno / config.json
+5. Cada función debe tener docstring explicando qué hace
+6. SIEMPRE loguear decisiones de Gemini con logger.info()
+7. En caso de duda sobre una acción → HOLD, nunca arriesgar capital
+
+## PARÁMETROS DE TRADING (NO CAMBIAR SIN ACTUALIZAR MEMORY.md)
+- Timeframe: 5m
+- Max posiciones simultáneas: 1
+- Stop-loss: 1.5%
+- Take-profit: 2.0%
+- Capital por trade: 10% del balance
+- Confianza mínima de Gemini para operar: 75%
+- Pares analizados para selección: Top 10 USDT por volumen
+- Refresh de par: cada 1 hora
+
+## CUANDO EL USUARIO PIDE CAMBIOS
+- Antes de modificar GeminiStrategy.py: leer MEMORY.md para contexto
+- Después de cualquier cambio importante: actualizar MEMORY.md
+- Si cambias parámetros de riesgo: documenta el razonamiento en MEMORY.md
+- Si Gemini devuelve errores: ver sección "Troubleshooting" en CONTEXT.md
