@@ -30,15 +30,14 @@ logger = logging.getLogger(__name__)
 
 # Configurar Gemini — rotación de múltiples APIs
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCbpd0NdDac1bARkb2L5bofijR3ejigaHw")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE", "35"))
-RATE_LIMIT_SECONDS = 2.0
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite-preview-06-17")
+MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE", "50"))
+RATE_LIMIT_SECONDS = 5.0
 
-# Pool de APIs — Gratis primero, pagada como respaldo
-# Orden: 7 keys gratuitas (1000 RPD c/u) → API pagada (sin limite diario)
-# Cuando las gratis se agoten, rota a la pagada automaticamente
+# Pool de APIs — SOLO gratuitas
+# Orden: 7 keys gratuitas (1000 RPD c/u)
+# Cuando las gratis se agoten, el bot queda en HOLD
 # A medianoche UTC se resetean las gratis y vuelve a empezar con ellas
-# Costo pagada: $0.10/M input + $0.40/M output = ~$0.000057 por llamada (sin thinking)
 _K1 = "AIzaSyAoqNG6fqNGo0LdGG1pCnMx4XBdI4XFpi8"  # gratuita
 _K2 = "AIzaSyBw667n2GHEdk1foXJJ1GRBJGmy5cJWoIM"  # gratuita
 _K3 = "AIzaSyDwNH5wRWxTotsoTS2Hii3QDkirdXRquug"  # gratuita
@@ -46,16 +45,14 @@ _K4 = "AIzaSyDzMSfPhvjBn9bUiiIkGqKIOOdzKl7gUNI"  # gratuita
 _K5 = "AIzaSyCbpd0NdDac1bARkb2L5bofijR3ejigaHw"  # gratuita
 _K6 = "AIzaSyBxBeB2ny4paZ__9kV-hisewlUDHTZVRPU"  # gratuita
 _K7 = "AIzaSyCZf8gaa41fZ_JLmhCacTp_-E6bqXCJKZw"  # gratuita
-_PAID = "AIzaSyDv4TA-vk585iS9CUHjPhKaCJzJW2CHlso"  # pagada (Paid Tier)
 GEMINI_API_POOL = [
-    {"key": _K1,   "model": "gemini-2.5-flash-lite", "daily_limit": 1000,  "label": "Gratis-1"},
-    {"key": _K2,   "model": "gemini-2.5-flash-lite", "daily_limit": 1000,  "label": "Gratis-2"},
-    {"key": _K3,   "model": "gemini-2.5-flash-lite", "daily_limit": 1000,  "label": "Gratis-3"},
-    {"key": _K4,   "model": "gemini-2.5-flash-lite", "daily_limit": 1000,  "label": "Gratis-4"},
-    {"key": _K5,   "model": "gemini-2.5-flash-lite", "daily_limit": 1000,  "label": "Gratis-5"},
-    {"key": _K6,   "model": "gemini-2.5-flash-lite", "daily_limit": 1000,  "label": "Gratis-6"},
-    {"key": _K7,   "model": "gemini-2.5-flash-lite", "daily_limit": 1000,  "label": "Gratis-7"},
-    {"key": _PAID, "model": "gemini-2.5-flash-lite", "daily_limit": 99999, "label": "Pagada"},
+    {"key": _K1,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-1"},
+    {"key": _K2,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-2"},
+    {"key": _K3,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-3"},
+    {"key": _K4,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-4"},
+    {"key": _K5,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-5"},
+    {"key": _K6,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-6"},
+    {"key": _K7,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-7"},
 ]
 
 # Telegram directo (sin python-telegram-bot)
@@ -837,17 +834,16 @@ class GeminiStrategy(IStrategy):
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # Prefiltro SUAVE: con 200 pares, solo llamar Gemini si hay oportunidad técnica
-        # Pasa si cumple AL MENOS 1 condición (muy permisivo)
+        # Prefiltro de ahorro: solo llamar Gemini si hay oportunidad técnica clara
+        # Esto evita gastar tokens en velas neutras
         last = dataframe.iloc[-1]
         pass_filter = (
-            last['rsi'] < 45 or                    # RSI bajo = posible rebote
-            last['stoch_rsi_k'] < 35 or            # StochRSI bajo
-            last['bb_pct'] < 35 or                 # Precio en zona baja de BB
-            (last['macd_hist'] > 0 and last['rsi'] < 55) or  # MACD alcista + RSI no alto
-            last['volume_ratio'] > 1.3 or          # Volumen inusual (algo pasa)
-            last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'DOJI', 'MORNING_STAR'] or
-            last['dist_support_pct'] < 1.5         # Cerca de soporte
+            (last['rsi'] < 42 and last['stoch_rsi_k'] < 35) or
+            (last['bb_pct'] < 25 and last['volume_ratio'] > 0.8) or
+            (last['macd_hist'] > 0 and last['rsi'] < 52 and last['volume_ratio'] > 1.0) or
+            (last['volume_ratio'] > 1.8 and last['rsi'] < 60) or
+            (last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'MORNING_STAR'] and last['volume_ratio'] > 1.0) or
+            (last['dist_support_pct'] < 1.0 and last['rsi'] < 55)
         )
 
         if not pass_filter:
