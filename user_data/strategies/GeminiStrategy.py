@@ -21,6 +21,10 @@ from typing import Optional
 
 from google import genai
 from google.genai import types as genai_types
+try:
+    from groq import Groq as GroqClient
+except ImportError:
+    GroqClient = None
 import pandas as pd
 from pandas import DataFrame
 
@@ -34,25 +38,29 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE", "50"))
 RATE_LIMIT_SECONDS = 5.0
 
-# Pool de APIs — SOLO gratuitas
-# Orden: 7 keys gratuitas (1000 RPD c/u)
-# Cuando las gratis se agoten, el bot queda en HOLD
-# A medianoche UTC se resetean las gratis y vuelve a empezar con ellas
-_K1 = "AIzaSyAoqNG6fqNGo0LdGG1pCnMx4XBdI4XFpi8"  # gratuita
-_K2 = "AIzaSyBw667n2GHEdk1foXJJ1GRBJGmy5cJWoIM"  # gratuita
-_K3 = "AIzaSyDwNH5wRWxTotsoTS2Hii3QDkirdXRquug"  # gratuita
-_K4 = "AIzaSyDzMSfPhvjBn9bUiiIkGqKIOOdzKl7gUNI"  # gratuita
-_K5 = "AIzaSyCbpd0NdDac1bARkb2L5bofijR3ejigaHw"  # gratuita
-_K6 = "AIzaSyBxBeB2ny4paZ__9kV-hisewlUDHTZVRPU"  # gratuita
-_K7 = "AIzaSyCZf8gaa41fZ_JLmhCacTp_-E6bqXCJKZw"  # gratuita
+# Pool unificado GRATIS — Gemini + Groq + OpenRouter
+# Total estimado: ~21,000 calls/día sin costo
+_K1 = "AIzaSyAoqNG6fqNGo0LdGG1pCnMx4XBdI4XFpi8"  # Gemini gratuita
+_K2 = "AIzaSyBw667n2GHEdk1foXJJ1GRBJGmy5cJWoIM"  # Gemini gratuita
+_K3 = "AIzaSyDwNH5wRWxTotsoTS2Hii3QDkirdXRquug"  # Gemini gratuita
+_K4 = "AIzaSyDzMSfPhvjBn9bUiiIkGqKIOOdzKl7gUNI"  # Gemini gratuita
+_K5 = "AIzaSyCbpd0NdDac1bARkb2L5bofijR3ejigaHw"  # Gemini gratuita
+_K6 = "AIzaSyBxBeB2ny4paZ__9kV-hisewlUDHTZVRPU"  # Gemini gratuita
+_K7 = "AIzaSyCZf8gaa41fZ_JLmhCacTp_-E6bqXCJKZw"  # Gemini gratuita
+_GROQ1 = "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"  # Groq gratuita
+_GROQ2 = "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"  # Groq gratuita
+_OR1 = "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"  # OpenRouter gratuita
 GEMINI_API_POOL = [
-    {"key": _K1,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-1"},
-    {"key": _K2,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-2"},
-    {"key": _K3,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-3"},
-    {"key": _K4,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-4"},
-    {"key": _K5,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-5"},
-    {"key": _K6,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-6"},
-    {"key": _K7,   "model": GEMINI_MODEL, "daily_limit": 1000,  "label": "Gratis-7"},
+    {"key": _K1,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-1", "provider": "gemini"},
+    {"key": _K2,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-2", "provider": "gemini"},
+    {"key": _K3,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-3", "provider": "gemini"},
+    {"key": _K4,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-4", "provider": "gemini"},
+    {"key": _K5,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-5", "provider": "gemini"},
+    {"key": _K6,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-6", "provider": "gemini"},
+    {"key": _K7,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-7", "provider": "gemini"},
+    {"key": _GROQ1, "model": "llama-3.3-70b-versatile",   "daily_limit": 1000, "label": "Groq-1",   "provider": "groq"},
+    {"key": _GROQ2, "model": "llama-3.3-70b-versatile",   "daily_limit": 1000, "label": "Groq-2",   "provider": "groq"},
+    {"key": _OR1,   "model": "google/gemma-4-26b-a4b-it:free", "daily_limit": 2000, "label": "OpenRouter-1", "provider": "openrouter"},
 ]
 
 # Telegram directo (sin python-telegram-bot)
@@ -288,7 +296,9 @@ class GeminiStrategy(IStrategy):
                     self._api_usage[entry["label"]]["count"] = 0
                     self._api_usage[entry["label"]]["date"] = today
                 self._api_index = 0
-                self._gemini_client = genai.Client(api_key=GEMINI_API_POOL[0]["key"])
+                first = GEMINI_API_POOL[0]
+                if first["provider"] == "gemini":
+                    self._gemini_client = genai.Client(api_key=first["key"])
             logger.info("[RESET] Contadores de API reseteados a medianoche UTC (reset diario)")
             _tg(
                 "APIS RECARGADAS\n"
@@ -297,11 +307,58 @@ class GeminiStrategy(IStrategy):
             )
 
     def _init_gemini_client(self) -> None:
-        """Inicializa el cliente Gemini con la API activa del pool."""
+        """Inicializa el cliente activo del pool (Gemini, Groq u OpenRouter)."""
         entry = GEMINI_API_POOL[self._api_index]
-        self._gemini_client = genai.Client(api_key=entry["key"])
+        self._gemini_client = genai.Client(api_key=entry["key"] if entry["provider"] == "gemini" else _K1)
         self._gemini_model_active = entry["model"]
-        logger.info(f"[OK] Gemini activo: {entry['label']} | modelo: {entry['model']}")
+        logger.info(f"[OK] API activa: {entry['label']} | proveedor: {entry['provider']} | modelo: {entry['model']}")
+
+    def _call_llm(self, entry: dict, prompt: str) -> str:
+        """Llama al proveedor correcto según entry['provider']. Retorna texto crudo."""
+        provider = entry.get("provider", "gemini")
+        if provider == "gemini":
+            response = self._gemini_client.models.generate_content(
+                model=entry["model"],
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    temperature=0.1,
+                    max_output_tokens=120,
+                    thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+            return response.text.strip()
+        elif provider == "groq":
+            if GroqClient is None:
+                raise RuntimeError("groq SDK no instalado")
+            gc = GroqClient(api_key=entry["key"])
+            r = gc.chat.completions.create(
+                model=entry["model"],
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=120,
+                temperature=0.1,
+            )
+            return r.choices[0].message.content.strip()
+        elif provider == "openrouter":
+            import urllib.request
+            data = json.dumps({
+                "model": entry["model"],
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 120,
+                "temperature": 0.1,
+            }).encode()
+            req = urllib.request.Request(
+                "https://openrouter.ai/api/v1/chat/completions",
+                data=data,
+                headers={
+                    "Authorization": f"Bearer {entry['key']}",
+                    "Content-Type": "application/json",
+                }
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                result = json.loads(resp.read())
+            return result["choices"][0]["message"]["content"].strip()
+        else:
+            raise ValueError(f"Proveedor desconocido: {provider}")
 
     # ── Q-Learning ─────────────────────────────────────────────────────────
 
@@ -539,13 +596,14 @@ class GeminiStrategy(IStrategy):
                     usage["count"] = 0
                     usage["date"] = today
                 if usage["count"] < entry["daily_limit"]:
-                    self._gemini_client = genai.Client(api_key=entry["key"])
+                    if entry["provider"] == "gemini":
+                        self._gemini_client = genai.Client(api_key=entry["key"])
                     self._gemini_model_active = entry["model"]
                     logger.info(f"[ROTATE] Rotando a {label} ({usage['count']}/{entry['daily_limit']} usadas)")
                     _tg(f"API rotada a {label}\nModelo: {entry['model']}\nUso: {usage['count']}/{entry['daily_limit']}")
                     return True
         logger.warning("[WARN] Todas las APIs agotadas por hoy. Bot en modo HOLD hasta manana.")
-        _tg("APIS GEMINI AGOTADAS\nEl bot esta en HOLD hasta la medianoche (reset diario).")
+        _tg("TODAS LAS APIS AGOTADAS\nEl bot esta en HOLD hasta la medianoche (reset diario).")
         return False
 
     def _get_active_api_entry(self) -> Optional[dict]:
@@ -1098,18 +1156,8 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
             if not api_entry:
                 return {"accion": "HOLD", "confianza": 0, "razon": "Todas las APIs agotadas"}
 
-            response = self._gemini_client.models.generate_content(
-                model=api_entry["model"],
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(
-                    temperature=0.1,
-                    max_output_tokens=120,
-                    thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
-                ),
-            )
-
+            raw = self._call_llm(api_entry, prompt)
             self._last_gemini_call = time.time()
-            raw = response.text.strip()
             raw = raw.replace("```json", "").replace("```", "").strip()
             # Intentar parsear JSON, si falla intentar extraer con regex
             try:
