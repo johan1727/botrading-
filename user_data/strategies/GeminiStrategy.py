@@ -47,19 +47,33 @@ _K4 = "AIzaSyDzMSfPhvjBn9bUiiIkGqKIOOdzKl7gUNI"  # Gemini gratuita
 _K5 = "AIzaSyCbpd0NdDac1bARkb2L5bofijR3ejigaHw"  # Gemini gratuita
 _K6 = "AIzaSyBxBeB2ny4paZ__9kV-hisewlUDHTZVRPU"  # Gemini gratuita
 _K7 = "AIzaSyCZf8gaa41fZ_JLmhCacTp_-E6bqXCJKZw"  # Gemini gratuita
-_GROQ1 = "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"  # Groq gratuita
-_GROQ2 = "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"  # Groq gratuita
-_OR1 = "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"  # OpenRouter gratuita
+_GROQ1 = os.getenv("GROQ_API_KEY_1",  "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")
+_GROQ2 = os.getenv("GROQ_API_KEY_2",  "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")
+_GROQ3 = os.getenv("GROQ_API_KEY_3",  "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")
+_GROQ4 = os.getenv("GROQ_API_KEY_4",  "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")
+_GROQ5 = os.getenv("GROQ_API_KEY_5",  "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")
+_GROQ6 = os.getenv("GROQ_API_KEY_6",  "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")
+_GROQ7 = os.getenv("GROQ_API_KEY_7",  "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")
+_GROQ8 = os.getenv("GROQ_API_KEY_8",  "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")
+_GROQ9 = os.getenv("GROQ_API_KEY_9",  "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")
+_OR1   = os.getenv("OPENROUTER_API_KEY_1", "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")
 GEMINI_API_POOL = [
-    {"key": _K1,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-1", "provider": "gemini"},
-    {"key": _K2,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-2", "provider": "gemini"},
-    {"key": _K3,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-3", "provider": "gemini"},
-    {"key": _K4,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-4", "provider": "gemini"},
-    {"key": _K5,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-5", "provider": "gemini"},
-    {"key": _K6,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-6", "provider": "gemini"},
-    {"key": _K7,   "model": GEMINI_MODEL,                  "daily_limit": 1000, "label": "Gemini-7", "provider": "gemini"},
-    {"key": _GROQ1, "model": "llama-3.3-70b-versatile",   "daily_limit": 1000, "label": "Groq-1",   "provider": "groq"},
-    {"key": _GROQ2, "model": "llama-3.3-70b-versatile",   "daily_limit": 1000, "label": "Groq-2",   "provider": "groq"},
+    {"key": _K1,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-1",     "provider": "gemini"},
+    {"key": _K2,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-2",     "provider": "gemini"},
+    {"key": _K3,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-3",     "provider": "gemini"},
+    {"key": _K4,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-4",     "provider": "gemini"},
+    {"key": _K5,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-5",     "provider": "gemini"},
+    {"key": _K6,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-6",     "provider": "gemini"},
+    {"key": _K7,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-7",     "provider": "gemini"},
+    {"key": _GROQ1, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-1",       "provider": "groq"},
+    {"key": _GROQ2, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-2",       "provider": "groq"},
+    {"key": _GROQ3, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-3",       "provider": "groq"},
+    {"key": _GROQ4, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-4",       "provider": "groq"},
+    {"key": _GROQ5, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-5",       "provider": "groq"},
+    {"key": _GROQ6, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-6",       "provider": "groq"},
+    {"key": _GROQ7, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-7",       "provider": "groq"},
+    {"key": _GROQ8, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-8",       "provider": "groq"},
+    {"key": _GROQ9, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-9",       "provider": "groq"},
     {"key": _OR1,   "model": "google/gemma-4-26b-a4b-it:free", "daily_limit": 2000, "label": "OpenRouter-1", "provider": "openrouter"},
 ]
 
@@ -262,8 +276,18 @@ class GeminiStrategy(IStrategy):
         self._trades_since_check: int = 0    # contador para evaluar métricas cada N trades
 
         # Sistema de rotación de APIs
-        self._api_index = 0
-        self._api_usage = {entry["label"]: {"count": 0, "date": datetime.now(timezone.utc).date()} for entry in GEMINI_API_POOL}
+        # Gemini free-trial expirado: arrancar directamente en Groq
+        _today = datetime.now(timezone.utc).date()
+        self._api_usage = {}
+        for entry in GEMINI_API_POOL:
+            if entry["provider"] == "gemini":
+                self._api_usage[entry["label"]] = {"count": entry["daily_limit"], "date": _today}
+            else:
+                self._api_usage[entry["label"]] = {"count": 0, "date": _today}
+        # Posicionar el índice en la primera API no-Gemini
+        self._api_index = next(
+            (i for i, e in enumerate(GEMINI_API_POOL) if e["provider"] != "gemini"), 0
+        )
         self._api_lock = threading.Lock()
         self._init_gemini_client()
 
