@@ -32,13 +32,15 @@
     ],
     "pair_blacklist": [
       "USDC/USDT", "PAXG/USDT", "XAUT/USDT", "KCS/USDT",
-      ".*DOWN/USDT", ".*UP/USDT", ".*BEAR/USDT", ".*BULL/USDT"
+      ".*DOWN/USDT", ".*UP/USDT", ".*BEAR/USDT", ".*BULL/USDT",
+      "DASH/USDT", "BILL/USDT", "RAVE/USDT", "MEGA/USDT",
+      "AI/USDT", "TAO/USDT", "LUNC/USDT", "PROS/USDT", "CHIP/USDT"
     ]
   },
   "pairlists": [
     {
       "method": "VolumePairList",
-      "number_assets": 50,
+      "number_assets": 100,
       "sort_key": "quoteVolume",
       "min_value": 1000000,
       "refresh_period": 3600

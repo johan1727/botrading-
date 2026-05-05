@@ -939,24 +939,25 @@ class GeminiStrategy(IStrategy):
         score += 2 if last['stoch_rsi_k'] < 30 else (1 if last['stoch_rsi_k'] < 40 else 0)
         score += 2 if last['bb_pct'] < 25 else (1 if last['bb_pct'] < 35 else 0)
         score += 2 if (last['macd_hist'] > 0 and last['volume_ratio'] > 1.0) else (1 if last['macd_hist'] > 0 else 0)
-        score += 1 if last['volume_ratio'] > 1.3 else 0
+        score += 1 if last['volume_ratio'] > 1.5 else 0
+        score += 1 if last['rsi'] > 35 else 0
         score += 2 if last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'MORNING_STAR'] else 0
         score += 1 if last['dist_support_pct'] < 1.0 else 0
         score += 1 if last.get('ema_signal') == 'ABOVE' else 0
 
         logger.debug(f"[SCORE] {pair} | score={score}/13")
 
-        if score < 5:
+        if score < 6:
             # Sin señal suficiente: skip
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
-        elif score < 7:
+        elif score < 8:
             # Score medio: BUY técnico directo sin llamar a la IA (ahorra calls)
             logger.info(f"[SCORE-BUY] {pair} | score={score} -> BUY local sin IA")
             dataframe.loc[dataframe.index[-1], "enter_long"] = 1
             return dataframe
 
-        # score >= 7: candidato fuerte → confirmar con Groq/Gemini
+        # score >= 8: candidato fuerte → confirmar con Groq/Gemini
         # Codificar estado para Q-Learning
         q_state = self._encode_state(dataframe)
 
