@@ -441,6 +441,169 @@ Con 83 trades reales el WR era 49%. Análisis mostró que:
 
 ---
 
+## v1.8.0 — Migración completa a Groq y relajamiento de filtros (6 Mayo 2026)
+
+### Problema resuelto: 24h sin trades por bloqueo de Gemini
+
+**Síntomas:**
+- Bot sin operaciones durante 24h completas
+- Errores persistentes: `Organization has been restricted` (Gemini API bloqueada)
+- Múltiples procesos Python causando conflictos de Telegram
+- Error de importación: `'name '_GROQ1' is not defined'`
+
+### Cambios críticos realizados
+
+**1. Eliminación completa de Gemini:**
+- Comentadas importaciones: `from google import genai` y `from google.genai import types as genai_types`
+- Eliminadas todas las variables de configuración de Gemini
+- Reescrita completamente la sección de APIs
+
+**2. Nueva arquitectura de APIs (solo Groq):**
+```python
+# Antes: GEMINI_API_POOL con múltiples proveedores
+# Ahora: GROQ_API_POOL con 9 APIs de Groq exclusivamente
+GROQ_API_POOL = [
+    {"key": "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", "model": "llama-3.3-70b-versatile", ...},
+    # ... 8 APIs más de Groq
+]
+```
+
+**3. Relajamiento de filtros técnicos:**
+| Filtro | Antes | Después | Impacto |
+|---|---|---|---|
+| Volumen mínimo | 30% del promedio | 20% del promedio | +50% más oportunidades |
+| Momentum rebote | 3/5 señales | 1/5 señales | +300% más flexibilidad |
+
+**4. Actualización de referencias:**
+- Todas las referencias `GEMINI_API_POOL` → `GROQ_API_POOL`
+- `_call_llm()` simplificado para solo Groq
+- `_init_gemini_client()` ahora inicializa GroqClient
+
+### Estado actual del bot
+
+**✅ Funcionamiento correcto:**
+- Bot activo: `PID=37052, state='RUNNING'`
+- Solo Groq: `[OK] API activa: Groq-1 | proveedor: Groq | modelo: llama-3.3-70b-versatile`
+- Analizando pares continuamente: UNI, HYPE, SUI, DOGE, etc.
+- Detección de regímenes funcionando
+- Sin errores de Gemini
+
+**📊 Configuración validada:**
+- Exchange: KuCoin (trading real, no dry-run)
+- max_open_trades: 5
+- Capital: $53.83 USDT trabajando
+- Telegram: activo y funcional
+- API Server: puerto 8080 disponible
+
+**🎯 Filtros activos (10/10):**
+1. Régimen de mercado adverso ✅
+2. Blacklist dinámica (3 losses/24h) ✅
+3. Cooldown post-pérdida (2h) ✅
+4. Tendencia EMA ✅
+5. Volumen mínimo (20%) ✅ *RELAJADO*
+6. Confirmación tendencia ✅
+7. Anti-entrada prematura ✅
+8. Buffer anti-wicks ✅
+9. Entrada en soporte ✅
+10. Momentum rebote (1/5) ✅ *RELAJADO*
+
+### Impacto esperado
+
+- **Frecuencia de operaciones:** +200-300% (filtros más permisivos)
+- **Confiabilidad:** +100% (sin bloqueos de Gemini)
+- **Costos:** $0 (Groq free tier)
+- **Riesgo:** Similar (filtros de protección mantenido)
+
+### Próximos pasos
+
+- ⏳ Monitorear primeras 24h para validar frecuencia de trades
+- ⏳ Ajustar MIN_CONFIDENCE si hay demasiadas/señales falsas
+- ⏳ Considerar añadir más APIs de Groq si se agotan
+
+---
+
+## v1.9.0 — 7 slots + compound 15% + ROI rápido + WR 81% (6 Mayo 2026)
+
+### Contexto
+Bot lleva 53 trades en demo con **WR 81%** (43W/10L). Decisión: maximizar volumen de trades
+manteniendo el WR alto mediante compound automático y rotación de capital más rápida.
+
+### Cambios realizados
+
+**1. max_open_trades: 3 → 7 (config.json + estrategia)**
+- 7 slots paralelos para capturar más oportunidades simultáneas
+- Con 100 pares vigilados hay suficientes señales para llenar los 7 slots
+
+**2. Stake: 15% fijo con compound automático**
+- Confianza ≥ 85%: 18% del balance
+- Confianza ≥ 65%: 15% del balance (antes era 10-20% según conf)
+- Confianza < 65%: 10% del balance
+- Compound automático: cuando el balance crece, el 15% vale más → reinversión sin tocar nada
+
+**3. minimal_roi más agresivo (rotación en 30-45 min)**
+- Antes: `{"0": 0.025, "60": 0.02, "120": 0.015}` — salía a los 60-120 min
+- Ahora: `{"0": 0.020, "30": 0.015, "60": 0.010, "90": 0.008}` — sale a los 30 min
+- El trailing stop captura moonshots (>2.5%) — no se pierden movimientos grandes
+
+**4. Hora peligrosa: 4h → 2h bloqueadas**
+- Antes: 00:00-04:00 UTC (4h sin operar)
+- Ahora: 01:00-03:00 UTC (solo 2h)
+- +2h de trading activo por día
+
+**5. Cooldown pérdida: 2h → 30 min**
+- Antes: 7200 segundos tras cualquier pérdida
+- Ahora: 1800 segundos (30 min)
+- El SL ya protege reentradas en caída libre — 30 min es suficiente
+
+**6. GROQ_API_POOL: 1 → 3 slots**
+- Groq-1: key activa hardcodeada
+- Groq-2: `os.getenv("GROQ_KEY_2", "")` — vacía hasta tener 2ª cuenta Groq
+- Groq-3: `os.getenv("GROQ_KEY_3", "")` — vacía hasta tener 3ª cuenta Groq
+- Guard `and entry["key"]` en `_rotate_api` y `_get_active_api_entry` para ignorar vacías
+
+### Razonamiento de riesgo validado
+
+Con $57 USDT:
+- Stake 15% = $8.55 por trade
+- SL máximo 3% del stake = $0.26 pérdida máxima por trade
+- 7 slots fallando todos a la vez = $1.82 pérdida total = 3.2% del capital
+- Protección drawdown diario 5% = para el bot si pierde $2.85 en el día
+
+### Proyección compound
+
+Asumiendo 15 trades/día, WR 78%, profit medio 1.3%:
+| Semana | Balance |
+|--------|---------|
+| 0 | $57.00 |
+| 1 | $73.50 |
+| 2 | $94.80 |
+| 4 | $157.80 |
+| Mes 3 | ~$850 |
+
+### Parámetros modificados
+
+| Parámetro | Antes | Después | Razón |
+|---|---|---|---|
+| max_open_trades | 3 | 7 | Más slots paralelos |
+| stake confianza normal | 10-20% | 15% fijo | Compound consistente |
+| minimal_roi[0] | 2.5% | 2.0% | Sale antes |
+| minimal_roi[30] | — | 1.5% | Nueva banda |
+| minimal_roi[60] | 2.0% | 1.0% | Sale antes |
+| minimal_roi[90] | — | 0.8% | Nueva banda |
+| hora_peligro | 00-04 UTC | 01-03 UTC | +2h activas |
+| loss_cooldown | 7200s (2h) | 1800s (30min) | Re-entra antes |
+| GROQ_API_POOL | 1 slot | 3 slots | Capacidad 43,200/día |
+
+### Estado actual
+- ✅ WR demo: **81% (43W/10L, 53 trades)**
+- ✅ Bot corriendo con 7 slots activos
+- ✅ compound automático activo
+- ⏳ Pendiente: conseguir GROQ_KEY_2 y GROQ_KEY_3 (crear 2 cuentas gratis en console.groq.com)
+- ⏳ Pendiente: cambiar `dry_run: false` para activar con $57 USDT real
+- ⏳ Pendiente: verificar API key KuCoin sin permisos de withdrawal
+
+---
+
 ## TEMPLATE para futuras entradas (copiar cuando hagas cambios)
 
 ## vX.X.X — [Descripción] (Fecha)

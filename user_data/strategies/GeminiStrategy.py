@@ -19,8 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from google import genai
-from google.genai import types as genai_types
+# from google import genai  # Eliminado - solo usamos Groq
+# from google.genai import types as genai_types  # Eliminado - solo usamos Groq
 try:
     from groq import Groq as GroqClient
 except ImportError:
@@ -32,49 +32,15 @@ from freqtrade.strategy import DecimalParameter, IStrategy, IntParameter
 
 logger = logging.getLogger(__name__)
 
-# Configurar Gemini — rotación de múltiples APIs
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCbpd0NdDac1bARkb2L5bofijR3ejigaHw")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+# Configuración de IA - Solo Groq
 MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE", "50"))
 RATE_LIMIT_SECONDS = 5.0
 
-# Pool unificado GRATIS — Gemini + Groq + OpenRouter
-# Total estimado: ~21,000 calls/día sin costo
-_K1 = "AIzaSyAoqNG6fqNGo0LdGG1pCnMx4XBdI4XFpi8"  # Gemini gratuita
-_K2 = "AIzaSyBw667n2GHEdk1foXJJ1GRBJGmy5cJWoIM"  # Gemini gratuita
-_K3 = "AIzaSyDwNH5wRWxTotsoTS2Hii3QDkirdXRquug"  # Gemini gratuita
-_K4 = "AIzaSyDzMSfPhvjBn9bUiiIkGqKIOOdzKl7gUNI"  # Gemini gratuita
-_K5 = "AIzaSyCbpd0NdDac1bARkb2L5bofijR3ejigaHw"  # Gemini gratuita
-_K6 = "AIzaSyBxBeB2ny4paZ__9kV-hisewlUDHTZVRPU"  # Gemini gratuita
-_K7 = "AIzaSyCZf8gaa41fZ_JLmhCacTp_-E6bqXCJKZw"  # Gemini gratuita
-_GROQ1 = os.getenv("GROQ_API_KEY_1",  "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")
-_GROQ2 = os.getenv("GROQ_API_KEY_2",  "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")
-_GROQ3 = os.getenv("GROQ_API_KEY_3",  "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")
-_GROQ4 = os.getenv("GROQ_API_KEY_4",  "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")
-_GROQ5 = os.getenv("GROQ_API_KEY_5",  "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")
-_GROQ6 = os.getenv("GROQ_API_KEY_6",  "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")
-_GROQ7 = os.getenv("GROQ_API_KEY_7",  "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")
-_GROQ8 = os.getenv("GROQ_API_KEY_8",  "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")
-_GROQ9 = os.getenv("GROQ_API_KEY_9",  "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")
-_OR1   = os.getenv("OPENROUTER_API_KEY_1", "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")
-GEMINI_API_POOL = [
-    {"key": _K1,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-1",     "provider": "gemini"},
-    {"key": _K2,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-2",     "provider": "gemini"},
-    {"key": _K3,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-3",     "provider": "gemini"},
-    {"key": _K4,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-4",     "provider": "gemini"},
-    {"key": _K5,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-5",     "provider": "gemini"},
-    {"key": _K6,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-6",     "provider": "gemini"},
-    {"key": _K7,    "model": GEMINI_MODEL,               "daily_limit": 1000, "label": "Gemini-7",     "provider": "gemini"},
-    {"key": _GROQ1, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-1",       "provider": "groq"},
-    {"key": _GROQ2, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-2",       "provider": "groq"},
-    {"key": _GROQ3, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-3",       "provider": "groq"},
-    {"key": _GROQ4, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-4",       "provider": "groq"},
-    {"key": _GROQ5, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-5",       "provider": "groq"},
-    {"key": _GROQ6, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-6",       "provider": "groq"},
-    {"key": _GROQ7, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-7",       "provider": "groq"},
-    {"key": _GROQ8, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-8",       "provider": "groq"},
-    {"key": _GROQ9, "model": "llama-3.3-70b-versatile",  "daily_limit": 1000, "label": "Groq-9",       "provider": "groq"},
-    {"key": _OR1,   "model": "google/gemma-4-26b-a4b-it:free", "daily_limit": 2000, "label": "OpenRouter-1", "provider": "openrouter"},
+# Pool de APIs - Solo Groq para evitar bloqueos
+GROQ_API_POOL = [
+    {"key": "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", "model": "llama-3.1-8b-instant", "daily_limit": 14400, "label": "Groq-1"},
+    {"key": os.getenv("GROQ_KEY_2", ""), "model": "llama-3.1-8b-instant", "daily_limit": 14400, "label": "Groq-2"},
+    {"key": os.getenv("GROQ_KEY_3", ""), "model": "llama-3.1-8b-instant", "daily_limit": 14400, "label": "Groq-3"},
 ]
 
 # Telegram directo (sin python-telegram-bot)
@@ -215,12 +181,14 @@ class GeminiStrategy(IStrategy):
     INTERFACE_VERSION = 3
     timeframe = "5m"
     can_short = False
-    max_open_trades = 5
+    max_open_trades = 7
     stoploss = -0.015
-    minimal_roi = {"0": 0.04, "30": 0.025, "60": 0.02, "120": 0.015}
+    minimal_roi = {"0": 0.020, "30": 0.015, "60": 0.010, "90": 0.008}
+    # ROI para alta confianza — se aplica dinámicamente en custom_exit
+    _roi_high_confidence = {"0": 0.035, "60": 0.025, "120": 0.015}
     trailing_stop = True
-    trailing_stop_positive = 0.005
-    trailing_stop_positive_offset = 0.02
+    trailing_stop_positive = 0.010
+    trailing_stop_positive_offset = 0.025
     trailing_only_offset_is_reached = True
     use_custom_stoploss = True
     startup_candle_count: int = 210
@@ -278,21 +246,20 @@ class GeminiStrategy(IStrategy):
         self._autopause_reason: str = ""
         self._trades_since_check: int = 0    # contador para evaluar métricas cada N trades
 
+        # ── Checklist demo → live ───────────────────────────────────────────
+        self._live_ready_notified: bool = False  # evitar repetir notificación
+
         # Sistema de rotación de APIs
         # Gemini free-trial expirado: arrancar directamente en Groq
         _today = datetime.now(timezone.utc).date()
-        self._api_usage = {}
-        for entry in GEMINI_API_POOL:
-            if entry["provider"] == "gemini":
-                self._api_usage[entry["label"]] = {"count": entry["daily_limit"], "date": _today}
-            else:
-                self._api_usage[entry["label"]] = {"count": 0, "date": _today}
-        # Posicionar el índice en la primera API no-Gemini
-        self._api_index = next(
-            (i for i, e in enumerate(GEMINI_API_POOL) if e["provider"] != "gemini"), 0
-        )
+        self._api_usage = {entry["label"]: {"count": 0, "date": datetime.now(timezone.utc).date()} for entry in GROQ_API_POOL}
+        self._gemini_decisions = {}
+        self._gemini_client = None
+        self._gemini_model_active = None
+        self._api_index = 0  # índice del pool de APIs activo
         self._api_lock = threading.Lock()
-        self._init_gemini_client()
+        self._last_gemini_call = 0
+        self._init_gemini_client()  # inicializar cliente Groq al arrancar
 
         # Arrancar scheduler de resumen diario en background
         threading.Thread(target=self._daily_summary_scheduler, daemon=True).start()
@@ -319,13 +286,12 @@ class GeminiStrategy(IStrategy):
             # Resetear todos los contadores
             today = datetime.now(timezone.utc).date()
             with self._api_lock:
-                for entry in GEMINI_API_POOL:
+                for entry in GROQ_API_POOL:
                     self._api_usage[entry["label"]]["count"] = 0
                     self._api_usage[entry["label"]]["date"] = today
                 self._api_index = 0
-                first = GEMINI_API_POOL[0]
-                if first["provider"] == "gemini":
-                    self._gemini_client = genai.Client(api_key=first["key"])
+                first = GROQ_API_POOL[0]
+                self._gemini_client = GroqClient(api_key=first["key"])
             logger.info("[RESET] Contadores de API reseteados a medianoche UTC (reset diario)")
             _tg(
                 "APIS RECARGADAS\n"
@@ -334,58 +300,24 @@ class GeminiStrategy(IStrategy):
             )
 
     def _init_gemini_client(self) -> None:
-        """Inicializa el cliente activo del pool (Gemini, Groq u OpenRouter)."""
-        entry = GEMINI_API_POOL[self._api_index]
-        self._gemini_client = genai.Client(api_key=entry["key"] if entry["provider"] == "gemini" else _K1)
+        """Inicializa el cliente de Groq."""
+        entry = GROQ_API_POOL[self._api_index]
+        self._gemini_client = GroqClient(api_key=entry["key"])
         self._gemini_model_active = entry["model"]
-        logger.info(f"[OK] API activa: {entry['label']} | proveedor: {entry['provider']} | modelo: {entry['model']}")
+        logger.info(f"[OK] API activa: {entry['label']} | proveedor: Groq | modelo: {entry['model']}")
 
     def _call_llm(self, entry: dict, prompt: str) -> str:
-        """Llama al proveedor correcto según entry['provider']. Retorna texto crudo."""
-        provider = entry.get("provider", "gemini")
-        if provider == "gemini":
-            response = self._gemini_client.models.generate_content(
-                model=entry["model"],
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(
-                    temperature=0.1,
-                    max_output_tokens=120,
-                    thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
-                ),
-            )
-            return response.text.strip()
-        elif provider == "groq":
-            if GroqClient is None:
-                raise RuntimeError("groq SDK no instalado")
-            gc = GroqClient(api_key=entry["key"])
-            r = gc.chat.completions.create(
-                model=entry["model"],
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=120,
-                temperature=0.1,
-            )
-            return r.choices[0].message.content.strip()
-        elif provider == "openrouter":
-            import urllib.request
-            data = json.dumps({
-                "model": entry["model"],
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 120,
-                "temperature": 0.1,
-            }).encode()
-            req = urllib.request.Request(
-                "https://openrouter.ai/api/v1/chat/completions",
-                data=data,
-                headers={
-                    "Authorization": f"Bearer {entry['key']}",
-                    "Content-Type": "application/json",
-                }
-            )
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                result = json.loads(resp.read())
-            return result["choices"][0]["message"]["content"].strip()
-        else:
-            raise ValueError(f"Proveedor desconocido: {provider}")
+        """Llama siempre a Groq. Retorna texto crudo."""
+        if GroqClient is None:
+            raise RuntimeError("groq SDK no instalado")
+        gc = GroqClient(api_key=entry["key"])
+        r = gc.chat.completions.create(
+            model=entry["model"],
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=120,
+            temperature=0.1,
+        )
+        return r.choices[0].message.content.strip()
 
     # ── Q-Learning ─────────────────────────────────────────────────────────
 
@@ -543,7 +475,7 @@ class GeminiStrategy(IStrategy):
 
     def _check_autopause(self) -> None:
         """Evalúa métricas y activa autopausa si el bot está rindiendo mal."""
-        recent = self._trade_memory[-20:] if len(self._trade_memory) >= 10 else []
+        recent = self._trade_memory[-20:] if len(self._trade_memory) >= 3 else []
         if not recent:
             return
         wins = sum(1 for t in recent if t["won"])
@@ -576,6 +508,40 @@ class GeminiStrategy(IStrategy):
                 f"Bot pausado {mins} minutos. Se reanuda automaticamente."
             )
 
+
+    def _check_live_readiness(self) -> None:
+        """Evalúa si el bot está listo para operar con dinero real y avisa por Telegram."""
+        if self._live_ready_notified:
+            return
+        mem = self._trade_memory
+        if len(mem) < 15:
+            return
+        wins = [t for t in mem if t["won"]]
+        losses = [t for t in mem if not t["won"]]
+        win_rate = len(wins) / len(mem)
+        total_profit = sum(t["profit_usd"] for t in wins)
+        total_loss = abs(sum(t["profit_usd"] for t in losses)) if losses else 0
+        profit_factor = total_profit / total_loss if total_loss > 0 else 99.0
+        max_dd = self._daily_loss_usd
+        balance_approx = 1000.0  # wallet demo base
+        max_dd_pct = (max_dd / balance_approx) * 100 if balance_approx > 0 else 0
+        # Criterios acelerados: 15 trades, WR≥55%, PF≥1.2, DD<12%
+        ready = (win_rate >= 0.55 and profit_factor >= 1.2 and max_dd_pct < 12.0)
+        logger.info(
+            f"[LIVE-CHECK] trades={len(mem)} WR={win_rate*100:.0f}% PF={profit_factor:.2f} "
+            f"DD={max_dd_pct:.1f}% | READY={ready}"
+        )
+        if ready:
+            self._live_ready_notified = True
+            _tg(
+                f"🟢 BOT LISTO PARA LIVE\n"
+                f"---\n"
+                f"Trades demo: {len(mem)} | WR: {win_rate*100:.0f}% | PF: {profit_factor:.2f}\n"
+                f"Max DD: {max_dd_pct:.1f}% | Episodios Q: {self._q_episodes}\n"
+                f"---\n"
+                f"Para activar: cambiar dry_run=false en config.json\n"
+                f"RECUERDA: solo capital que puedes perder"
+            )
 
     def _fetch_1h_trend(self, pair: str) -> tuple:
         """Devuelve tendencia 1h desde caché. El refresco ocurre en background."""
@@ -613,18 +579,17 @@ class GeminiStrategy(IStrategy):
         """Rota a la siguiente API disponible. Retorna False si todas agotadas."""
         today = datetime.now(timezone.utc).date()
         with self._api_lock:
-            for _ in range(len(GEMINI_API_POOL)):
-                self._api_index = (self._api_index + 1) % len(GEMINI_API_POOL)
-                entry = GEMINI_API_POOL[self._api_index]
+            for _ in range(len(GROQ_API_POOL)):
+                self._api_index = (self._api_index + 1) % len(GROQ_API_POOL)
+                entry = GROQ_API_POOL[self._api_index]
                 label = entry["label"]
                 usage = self._api_usage[label]
                 # Reset conteo si es nuevo día
                 if usage["date"] != today:
                     usage["count"] = 0
                     usage["date"] = today
-                if usage["count"] < entry["daily_limit"]:
-                    if entry["provider"] == "gemini":
-                        self._gemini_client = genai.Client(api_key=entry["key"])
+                if usage["count"] < entry["daily_limit"] and entry["key"]:
+                    self._gemini_client = GroqClient(api_key=entry["key"])
                     self._gemini_model_active = entry["model"]
                     logger.info(f"[ROTATE] Rotando a {label} ({usage['count']}/{entry['daily_limit']} usadas)")
                     _tg(f"API rotada a {label}\nModelo: {entry['model']}\nUso: {usage['count']}/{entry['daily_limit']}")
@@ -637,20 +602,20 @@ class GeminiStrategy(IStrategy):
         """Devuelve la entrada activa del pool, rotando si está agotada."""
         today = datetime.now(timezone.utc).date()
         with self._api_lock:
-            entry = GEMINI_API_POOL[self._api_index]
+            entry = GROQ_API_POOL[self._api_index]
             label = entry["label"]
             usage = self._api_usage[label]
             if usage["date"] != today:
                 usage["count"] = 0
                 usage["date"] = today
-            if usage["count"] < entry["daily_limit"]:
+            if usage["count"] < entry["daily_limit"] and entry["key"]:
                 usage["count"] += 1
                 return entry
             needs_rotate = True
         # Lock liberado antes de llamar a _rotate_api para evitar deadlock
         if needs_rotate:
             if self._rotate_api():
-                return GEMINI_API_POOL[self._api_index]
+                return GROQ_API_POOL[self._api_index]
         return None
 
     def _daily_summary_scheduler(self) -> None:
@@ -687,6 +652,26 @@ class GeminiStrategy(IStrategy):
         peor = min(trades, key=lambda t: t["profit_usd"])
         winrate = (ganadas / len(trades)) * 100
 
+        # Stats de Q-Learning para el reporte
+        with self._q_lock:
+            q_vals_buy = [(i, self._q_table[i][1]) for i in range(self._q_states)]
+        top_estados = sorted(q_vals_buy, key=lambda x: x[1], reverse=True)[:3]
+        top_str = " | ".join([f"E{e[0]}={e[1]:.2f}" for e in top_estados if e[1] > 0])
+        if not top_str:
+            top_str = "aun aprendiendo..."
+
+        # Mejor par por win rate en memoria
+        pares_mem = {}
+        for t in self._trade_memory:
+            p = t["pair"]
+            pares_mem.setdefault(p, {"w": 0, "l": 0})
+            if t["won"]:
+                pares_mem[p]["w"] += 1
+            else:
+                pares_mem[p]["l"] += 1
+        mejor_par_wr = max(pares_mem.items(), key=lambda x: x[1]["w"] / max(x[1]["w"] + x[1]["l"], 1), default=None)
+        mejor_par_str = f"{mejor_par_wr[0]} ({mejor_par_wr[1]['w']}W/{mejor_par_wr[1]['l']}L)" if mejor_par_wr else "sin datos"
+
         signo_total = "+" if total_usd >= 0 else ""
         _tg(
             f"Resumen del dia {today}\n"
@@ -695,6 +680,10 @@ class GeminiStrategy(IStrategy):
             f"Winrate: {winrate:.0f}%\n"
             f"Mejor trade: {mejor['pair']} +${mejor['profit_usd']:.2f}\n"
             f"Peor trade: {peor['pair']} ${peor['profit_usd']:.2f}\n"
+            f"\nAprendizaje Q-Learning:\n"
+            f"  Episodios: {self._q_episodes} | Epsilon: {self._q_epsilon:.3f}\n"
+            f"  Top estados rentables: {top_str}\n"
+            f"  Mejor par historico: {mejor_par_str}\n"
             f"El bot sigue operando"
         )
 
@@ -906,8 +895,11 @@ class GeminiStrategy(IStrategy):
         )
 
         # VWAP — indicador institucional (precio ponderado por volumen)
+        # Ventana rodante 288 velas = 1 día en 5m (evita lookahead bias del cumsum total)
         typical_price = (dataframe["high"] + dataframe["low"] + dataframe["close"]) / 3
-        dataframe["vwap"] = (typical_price * dataframe["volume"]).cumsum() / dataframe["volume"].cumsum()
+        tp_vol = (typical_price * dataframe["volume"]).rolling(288, min_periods=1).sum()
+        vol_sum = dataframe["volume"].rolling(288, min_periods=1).sum()
+        dataframe["vwap"] = tp_vol / vol_sum.replace(0, 1e-10)
         dataframe["dist_vwap_pct"] = (dataframe["close"] - dataframe["vwap"]) / dataframe["vwap"] * 100
 
         # Bollinger Band Squeeze — bandas comprimidas = explosion inminente
@@ -919,6 +911,10 @@ class GeminiStrategy(IStrategy):
             (dataframe["close"] < dataframe["close"].shift(3)) &
             (dataframe["rsi"] > dataframe["rsi"].shift(3) + 3)
         ).map({True: "BULL_DIV", False: "OK"})
+
+        # EMA200 — tendencia macro institucional (usada en _detect_regime)
+        dataframe["ema200"] = self._calc_ema(dataframe["close"], 200)
+        dataframe["ema200_signal"] = (dataframe["close"] > dataframe["ema200"]).map({True: "ABOVE", False: "BELOW"})
 
         dataframe["gemini_buy"] = 0
         dataframe["gemini_sell"] = 0
@@ -965,47 +961,84 @@ class GeminiStrategy(IStrategy):
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # ── NIVEL 1: prefiltro binario (gratis, local) ─────────────────────
-        # Elimina pares sin ninguna señal técnica mínima
+        # ── Umbrales adaptativos según régimen (estilo NostalgiaForInfinityX7) ──
+        # Mercado alcista calmado → más permisivo (RSI<65)
+        # Transición / rango    → equilibrado   (RSI<55)
+        # Bajista / volátil     → estricto       (RSI<40, solo capitulaciones)
+        if regime in ("TENDENCIA_ALCISTA_CALMADA", "TENDENCIA_ALCISTA_NORMAL"):
+            rsi_umbral, macd_req, f2_score_min = 65, False, 2
+        elif regime in ("TENDENCIA_ALCISTA_VOLATIL", "TRANSICION", "RANGO_ESTRECHO"):
+            rsi_umbral, macd_req, f2_score_min = 55, True, 3
+        else:  # BAJISTA_*, CAOS, UNKNOWN
+            rsi_umbral, macd_req, f2_score_min = 40, True, 4
+
+        # ── NIVEL 1: prefiltro open source (RSI + MACD alcista + EMA) ─────────
+        # Basado en EnhancedIndicatorStrategy y NostalgiaForInfinityX7 (GitHub)
         last = dataframe.iloc[-1]
-        pass_l1 = (
-            last['rsi'] < 50 or
-            last['stoch_rsi_k'] < 40 or
-            last['bb_pct'] < 40 or
-            last['macd_hist'] > 0 or
-            last['volume_ratio'] > 1.2 or
-            last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'MORNING_STAR'] or
-            last['dist_support_pct'] < 2.0
-        )
+        prev = dataframe.iloc[-2]
+        macd_alcista = last['macd_hist'] > 0 or (last['macd_hist'] > prev['macd_hist'] and last['macd_hist'] > -0.0001)
+        ema_ok = (last['ema20'] > last['ema50']) or (last['rsi'] < rsi_umbral * 0.85)
+        macd_ok = macd_alcista if macd_req else True
+        pass_l1 = (last['rsi'] < rsi_umbral) and macd_ok and ema_ok
+        logger.info(f"[NIVEL1] {pair} | RSI={last['rsi']:.1f}(umbral={rsi_umbral},{regime}) | MACD_ok={macd_alcista}(req={macd_req}) | EMA_ok={ema_ok} | PASS={pass_l1}")
         if not pass_l1:
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # ── Filtro 1: tendencia EMA — no comprar contra tendencia bajista ────
-        ema_trending_up = last['ema20'] > last['ema50']
-        if not ema_trending_up and last['rsi'] > 55:
-            logger.debug(f"[EMA-FILTER] {pair} contra tendencia (EMA20={last['ema20']:.4f}<EMA50={last['ema50']:.4f}) RSI={last['rsi']:.0f}")
-            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
-            return dataframe
-
-        # ── Filtro 4: volumen vela actual ────────────────────────────────────
+        # ── Filtro 1: volumen vela actual ─────────────────────────────────
         vol_mean_20 = dataframe['volume'].rolling(20).mean().iloc[-1]
-        if vol_mean_20 > 0 and last['volume'] < vol_mean_20 * 0.3:
-            logger.debug(f"[VOL-FILTER] {pair} vela sin volumen ({last['volume']:.0f} < {vol_mean_20*0.3:.0f})")
+        if vol_mean_20 > 0 and last['volume'] < vol_mean_20 * 0.2:
+            logger.debug(f"[VOL-FILTER] {pair} vela sin volumen ({last['volume']:.0f} < {vol_mean_20*0.2:.0f})")
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # ── Filtro 5: ADX minimo 20 — no entrar en mercados laterales ────────
-        if last['adx'] < 20 and last['volume_ratio'] < 1.3:
-            logger.debug(f"[ADX-FILTER] {pair} mercado lateral ADX={last['adx']:.0f} vol={last['volume_ratio']:.1f}x")
-            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
-            return dataframe
-
-        # ── Filtro 6: confirmacion tendencia vela anterior ──────────────────
+        # ── Filtro 2: confirmacion RSI (umbral dinámico según régimen) ───────
         prev = dataframe.iloc[-2]
-        rsi_confirma = last['rsi'] < 40 or (prev['rsi'] > last['rsi'] and last['rsi'] < 52)
-        if not rsi_confirma:
-            logger.debug(f"[RSI-CONFIRM] {pair} RSI no viene bajando prev={prev['rsi']:.0f} now={last['rsi']:.0f}")
+        rsi_confirma = last['rsi'] < (rsi_umbral * 0.7) or last['rsi'] < prev['rsi']
+        score_previo = sum([
+            int(last['rsi'] < 48),
+            int(last['stoch_rsi_k'] < 40),
+            int(last['bb_pct'] < 35),
+            int(last['macd_hist'] > 0),
+            int(last['volume_ratio'] > 1.2),
+        ])
+        if not rsi_confirma and score_previo < f2_score_min:
+            logger.debug(f"[F2-RSI] {pair} RSI no confirma y score bajo ({score_previo}/{f2_score_min}) regimen={regime} — skip")
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+
+        # ── Filtro 3: no entrar tras vela bajista grande ───────────────────────
+        # En mercado alcista calmado se omite — NFI permite entradas post-rechazo
+        prev_body = abs(prev['close'] - prev['open'])
+        prev_range = (prev['high'] - prev['low']) if (prev['high'] - prev['low']) > 0 else 1e-10
+        f3_activo = regime not in ("TENDENCIA_ALCISTA_CALMADA", "TENDENCIA_ALCISTA_NORMAL")
+        if f3_activo and prev['close'] < prev['open'] and prev_body > prev_range * 0.6:
+            logger.debug(f"[F3-CANDLE] {pair} vela bajista grande ({prev_body/prev_range*100:.0f}%) regimen={regime} — esperando confirmacion")
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+
+        # ── Filtro 4: soporte real bajo SL — buffer contra wicks ────────────
+        dist_to_support_pct = (last['close'] - last['support_20']) / last['close'] * 100
+        if dist_to_support_pct < 0.3:
+            logger.debug(f"[F4-SL] {pair} soporte demasiado cerca {dist_to_support_pct:.2f}% — riesgo wick al SL")
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+
+        # ── Filtro 5: momentum rebote proxima vela ────────────────────────────
+        v1 = dataframe.iloc[-4]  # 3 velas atras
+        v2 = dataframe.iloc[-3]  # 2 velas atras
+        v3 = dataframe.iloc[-2]  # vela anterior
+        momentum_rebote = sum([
+            int(v3['close'] > v2['close']),                            # v_anterior cerro arriba
+            int(v3['volume'] > v2['volume']),                          # volumen creciendo
+            int(v2['low'] < v1['low']),                                # nuevo minimo (capitulacion)
+            int(float(last['rsi']) > float(v3['rsi'])),                # RSI subiendo (last vs v_anterior)
+            int(float(last['macd_hist']) > float(v3['macd_hist'])),    # MACD mejorando
+        ])
+        # En mercado alcista calmado basta 0/5 (cualquier vela es válida) — NFI
+        f5_min = 0 if regime in ("TENDENCIA_ALCISTA_CALMADA", "TENDENCIA_ALCISTA_NORMAL") else 1
+        if momentum_rebote < f5_min:
+            logger.debug(f"[F5-MOMENTUM] {pair} sin senales de rebote ({momentum_rebote}/5) regimen={regime} — skip")
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
@@ -1019,7 +1052,8 @@ class GeminiStrategy(IStrategy):
         score += 1 if last['volume_ratio'] > 1.5 else 0
         score += 1 if last['rsi'] > 35 else 0
         score += 2 if last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'MORNING_STAR'] else 0
-        score += 1 if last['dist_support_pct'] < 1.0 else 0
+        score += 2 if dist_to_support_pct < 0.5 else (1 if dist_to_support_pct < 1.5 else 0)
+        score += 1 if momentum_rebote >= 3 else 0
         score += 1 if last.get('ema_signal') == 'ABOVE' else 0
         score += 2 if last.get('rsi_bull_div') == 'BULL_DIV' else 0
         score += 1 if last.get('dist_vwap_pct', 0) < -1.0 else 0
@@ -1027,21 +1061,27 @@ class GeminiStrategy(IStrategy):
 
         logger.debug(f"[SCORE] {pair} | score={score}/17")
 
-        if score < 6:
+        if score < 2:
             # Sin señal suficiente: skip
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
-        elif score < 8:
-            # Score medio: BUY técnico directo sin llamar a la IA (ahorra calls)
-            logger.info(f"[SCORE-BUY] {pair} | score={score} -> BUY local sin IA")
-            dataframe.loc[dataframe.index[-1], "enter_long"] = 1
-            return dataframe
 
-        # score >= 8: candidato fuerte → confirmar con Groq/Gemini
         # Codificar estado para Q-Learning
         q_state = self._encode_state(dataframe)
 
-        decision = self._get_gemini_decision(pair, dataframe)
+        # Score hint dinámico: la IA recibe contexto según la fuerza del setup
+        if score >= 8:
+            score_hint = f"SCORE_LOCAL={score}/17 -> SETUP MUY FUERTE. Entra salvo peligro claro (DivRSI=BEARISH o HoraBaja=SI o vela bajista o CAOS)."
+        elif score >= 5:
+            score_hint = f"SCORE_LOCAL={score}/17 -> Setup moderado-fuerte. Entra si la mayoria de indicadores son alcistas."
+        else:
+            score_hint = f"SCORE_LOCAL={score}/17 -> Setup debil. Solo entra si hay señal clara de rebote."
+
+        logger.info(f"[GROQ-CALL] {pair} | score={score}/17 — llamando a Groq")
+        decision = self._get_gemini_decision(pair, dataframe, score_hint=score_hint)
+
+        if decision:
+            logger.info(f"[GROQ-RESP] {pair} | accion={decision.get('accion')} | confianza={decision.get('confianza')} | razon={decision.get('razon','N/A')[:60]}")
 
         if decision and decision.get("accion") == "BUY":
             confidence = decision.get("confianza", 0)
@@ -1100,23 +1140,25 @@ class GeminiStrategy(IStrategy):
             logger.info(f"[COOLDOWN] {pair} en cooldown, faltan {mins_restantes:.0f} min")
             return 0.0
 
-        # Capital por trade: 20% del balance disponible (max 5 trades = 100% exposición total)
-        base_pct = 0.20
-        max_by_balance = min(max(balance * base_pct, min_stake), max_stake)
-        cache_key = next((k for k in self._gemini_decisions if k.startswith(pair)), None)
-        if cache_key:
-            confidence = self._gemini_decisions[cache_key].get("confianza", 0)
-            if confidence >= 75:
-                # Alta confianza: usar 20% completo sin reducir
-                stake = min(max_by_balance, max_stake)
-                logger.info(f"[STAKE] Alto {stake:.2f}$ | {pair} | conf={confidence}%")
-                return stake
+        # Capital escalado por nivel de confianza de Groq/Gemini
+        cache_key = next((k for k in self._gemini_decisions if k.startswith(pair + "_")), None)
+        confidence = self._gemini_decisions[cache_key].get("confianza", 0) if cache_key else 0
 
-        stake = min(max_by_balance, max_stake)
+        if confidence >= 85:
+            base_pct = 0.18   # excelente — 18% (compound agresivo)
+            nivel_txt = "[EXCELENTE]"
+        elif confidence >= 65:
+            base_pct = 0.15   # buena/normal — 15% fijo (tu lógica: SL limita pérdida real)
+            nivel_txt = "[BUENA]"
+        else:
+            base_pct = 0.10   # débil — 10% reducido
+            nivel_txt = "[NORMAL]"
+
+        stake = min(max(balance * base_pct, min_stake), max_stake)
         # Ajustar stake según régimen de mercado
         stake = round(stake * self._regime_stake_mult, 2)
         stake = max(stake, min_stake) if stake > 0 else 0.0
-        logger.info(f"[STAKE] Normal {stake:.2f}$ ({base_pct*100:.0f}% balance) | {pair} | regimen={self._market_regime} mult={self._regime_stake_mult}")
+        logger.info(f"[STAKE] {nivel_txt} {stake:.2f}$ ({base_pct*100:.0f}% balance) | {pair} | conf={confidence}% | mult={self._regime_stake_mult}")
         return stake
 
     def custom_stoploss(
@@ -1125,7 +1167,7 @@ class GeminiStrategy(IStrategy):
     ) -> float:
         """Stop loss dinámico basado en ATR × multiplicador según volatilidad y régimen."""
         # Obtener ATR% real del par desde decisión cacheada (guardado en _get_gemini_decision)
-        last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair)), {})
+        last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair + "_")), {})
         atr_pct = last_decision.get("atr_pct", 1.0)  # % de ATR real, default 1%
         regime = self._market_regime
         if "CALMADA" in regime or regime == "RANGO_TRANQUILO":
@@ -1137,8 +1179,8 @@ class GeminiStrategy(IStrategy):
         else:
             multiplier = 1.5  # default neutro
 
-        # Calcular stop distance: ATR% * multiplicador, con floor y ceiling
-        stop_distance = max(0.008, min(0.030, (atr_pct / 100) * multiplier))
+        # Calcular stop distance: ATR% * multiplicador + buffer 0.3% anti-wick
+        stop_distance = max(0.012, min(0.030, (atr_pct / 100) * multiplier + 0.003))
         # Si ya estamos en profit > 2%, activar trailing más ajustado
         if current_profit > 0.02:
             return -0.005  # trailing muy ajustado una vez en ganancia
@@ -1179,8 +1221,22 @@ class GeminiStrategy(IStrategy):
         dataframe.loc[dataframe["gemini_sell"] == 1, "exit_long"] = 1
         return dataframe
 
+    def custom_exit(self, pair: str, trade, current_time, current_rate: float,
+                    current_profit: float, **kwargs) -> Optional[str]:
+        """TP dinamico: trades con confianza 85%+ esperan hasta 3.5% de ganancia."""
+        last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair + "_")), {})
+        confidence = last_decision.get("confianza", 0)
+        if confidence >= 85:
+            trade_duration = (current_time - trade.open_date_utc).total_seconds() / 60
+            if trade_duration <= 60 and current_profit >= 0.035:
+                logger.info(f"[TP-ALTO] {pair} | conf={confidence}% | profit={current_profit*100:.2f}% >= 3.5%")
+                return "tp_alta_confianza"
+            elif trade_duration <= 120 and current_profit >= 0.025:
+                return None  # dejar que minimal_roi normal lo cierre
+        return None
+
     def _get_gemini_decision(
-        self, pair: str, dataframe: DataFrame
+        self, pair: str, dataframe: DataFrame, score_hint: str = ""
     ) -> Optional[dict]:
         """
         Llama a Gemini API con el contexto del mercado.
@@ -1220,7 +1276,7 @@ class GeminiStrategy(IStrategy):
 
             # Hora UTC — evitar operar entre 00:00-04:00 UTC (caída de madrugada)
             hora_utc = datetime.now(timezone.utc).hour
-            hora_peligro = "SI" if 0 <= hora_utc < 4 else "NO"
+            hora_peligro = "SI" if 1 <= hora_utc < 3 else "NO"
 
             # Memoria activa: aprender de errores por par específico
             pair_trades = [t for t in self._trade_memory if t["pair"] == pair]
@@ -1252,41 +1308,20 @@ class GeminiStrategy(IStrategy):
             adx_status = "FUERTE" if last['adx'] > 40 else ("TENDENCIA" if last['adx'] > 25 else "LATERAL")
             mfi_status = last['mfi_signal']
 
-            prompt = f"""Eres un trader crypto AGRESIVO que busca oportunidades de compra. Par: {pair}. Responde UNICAMENTE JSON.
-IMPORTANTE: Tu objetivo es ENCONTRAR compras rentables. Solo di HOLD si NO hay ninguna oportunidad. Ignora Q-Learning si ves buena entrada.
+            prompt = f"""Eres un trader crypto. Par: {pair}. RESPONDE SOLO JSON, sin texto adicional.
 
-PRECIO: {last['close']:.4f} | Momento={momentum} | Vela={last['candle_pattern']}
-REGIMEN: {self._market_regime}
-TENDENCIA: 1H={trend_1h} RSI1H={rsi_1h:.0f} EMA50={last['ema_signal']} EMA200={last['ema200_signal']}
-FUERZA: ADX={last['adx']:.0f}[{adx_status}] MFI={last['mfi']:.0f}[{mfi_status}]
-MOMENTUM: RSI={last['rsi']:.0f}[{rsi_status}] StochRSI={last['stoch_rsi_k']:.0f}[{stoch_status}] MACD={macd_trend}
-OSCILADORES: CCI={last['cci']:.0f}[{cci_status}] WilliamsR={last['williams_r']:.0f}[{wr_status}]
-VOLUMEN: Vol={last['volume_ratio']:.1f}x OBV={last['obv_signal']} BB={last['bb_pct']:.0f}%[{bb_pos}]
-NIVELES_SWING: Soporte={last['dist_support_pct']:.1f}%abajo Resistencia={last['dist_resistance_pct']:.1f}%arriba
-FIBONACCI: {last['fib_zone']} | NumRedondo={last['dist_round_number_pct']:.1f}%
-RIESGO: ATR={last['atr_pct']:.2f}% DivRSI={last['rsi_divergence']} HoraBaja={hora_peligro}
-MERCADO: FG={fg_value}[{fg_label}] Noticias={news[:80]}
-SENTIMENT: Social={social_label}({social_avg}%) Reddit={reddit_score}%({reddit_mentions}posts) Trending={is_trending} NewsSent={news_sentiment}%
-IA_MEMORIA: {q_hint} (solo referencia, NO seguir ciegamente)
-{memory_ctx}
+{score_hint}
+INDICADORES: RSI={last['rsi']:.0f} MACD={macd_trend} StochRSI={last['stoch_rsi_k']:.0f} Vol={last['volume_ratio']:.1f}x BB={last['bb_pct']:.0f}% Vela={last['candle_pattern']}
+TENDENCIA: Regimen={self._market_regime} EMA50={last['ema_signal']} EMA200={last['ema200_signal']} 1H={trend_1h} RSI1H={rsi_1h:.0f}
+NIVELES: Soporte={last['dist_support_pct']:.1f}%abajo Resistencia={last['dist_resistance_pct']:.1f}%arriba ATR={last['atr_pct']:.2f}%
+MERCADO: FG={fg_value}[{fg_label}] Social={social_label} Trending={is_trending}
+PELIGRO: DivRSI={last['rsi_divergence']} HoraBaja={hora_peligro}{' | ' + memory_ctx if memory_ctx else ''}
 
-COMPRAR si cumple 2+ de estas:
-- MACD ALCISTA + RSI<60
-- RSI<40 (sobreventa = oportunidad)
-- StochRSI<30 + Vol>0.7x
-- BB<25% (precio bajo en banda)
-- Vela=HAMMER/BULL_ENGULF/DOJI + Vol>0.8x
-- Precio cerca soporte (<1.5%)
-- Sentiment BULLISH + Trending=SI
-- EMA50=ABOVE o EMA200=ABOVE
-- 1H=BULL + ADX>20
+VETO_OBLIGATORIO (responde HOLD si cualquiera): DivRSI=BEARISH_DIV | HoraBaja=SI | Vela=SHOOTING_STAR o BEAR_ENGULF | Regimen=CAOS_VOLATIL | Vol<0.3x
+VENTA (responde SELL si): RSI>75 y MACD=BAJISTA | StochRSI>85 y MFI>80
 
-NUNCA COMPRAR solo si: Vol<0.3x | DivRSI=BEARISH_DIV | HoraBaja=SI | vela=SHOOTING_STAR/BEAR_ENGULF | REGIMEN=CAOS
-
-VENDER si: RSI>75 + MACD BAJISTA | DivRSI=BEARISH_DIV | StochRSI>85 + MFI>85
-
-Confianza: 40-60=senal debil, 61-80=buena, 81-100=excelente
-JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
+Sigue el SCORE_LOCAL como guia principal. Si no hay VETO activo, prioriza BUY.
+JSON: {{"accion":"BUY","confianza":65,"razon":"max10palabras"}}"""
 
             api_entry = self._get_active_api_entry()
             if not api_entry:
@@ -1348,8 +1383,8 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
                 # Marcar la API actual como agotada en el contador local
                 # para que _rotate_api la salte y no siga intentando
                 with self._api_lock:
-                    label = GEMINI_API_POOL[self._api_index]["label"]
-                    limit = GEMINI_API_POOL[self._api_index]["daily_limit"]
+                    label = GROQ_API_POOL[self._api_index]["label"]
+                    limit = GROQ_API_POOL[self._api_index]["daily_limit"]
                     self._api_usage[label]["count"] = limit
                 logger.warning(f"[WARN] API {label} agotada en Google, marcando como usada y rotando...")
                 if not self._rotate_api():
@@ -1364,7 +1399,7 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
                 time.sleep(5)
                 self._rotate_api()
             else:
-                logger.error(f"[ERROR] Llamada a Gemini: {e}")
+                logger.error(f"[ERROR] Llamada a IA: {e}")
             return {"accion": "HOLD", "confianza": 0, "razon": f"Error: {str(e)[:50]}"}
 
     def confirm_trade_entry(
@@ -1376,13 +1411,13 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
         confidence = 0
         razon = ""
         for k, v in self._gemini_decisions.items():
-            if k.startswith(pair):
+            if k.startswith(pair + "_"):
                 confidence = v.get("confianza", 0)
                 razon = v.get("razon", "")[:60]
                 break
-        nivel = "ALTA CONFIANZA" if confidence >= 80 else "Normal"
+        nivel = "[EXCELENTE]" if confidence >= 85 else ("[BUENA]" if confidence >= 75 else "[NORMAL]")
         moneda = pair.split("/")[0]
-        last_dec_e = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair)), {})
+        last_dec_e = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair + "_")), {})
         atr_e = last_dec_e.get("atr_pct", 1.0)
         reg = self._market_regime
         sl_m = 1.2 if ("CALMADA" in reg or reg == "RANGO_TRANQUILO") else (2.0 if ("VOLATIL" in reg or "CAOS" in reg) else 1.5)
@@ -1396,17 +1431,16 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
             f"[ENTRY_OK] {pair} | Precio: {rate:.6f} | Capital: ${total_cost:.2f} | ADX={adx_e:.0f} | Stop={stop_pct:.1f}%"
         )
         _tg(
-            f"COMPRANDO {moneda}\n"
-            f"Par: {pair}\n"
-            f"Precio entrada: {rate:.4f} USDT\n"
-            f"Capital: ${total_cost:.2f}\n"
-            f"Ganancia objetivo: +${ganancia_esperada:.2f} (+2%)\n"
-            f"Stop loss: -${perdida_max:.2f} (-{stop_pct:.1f}% ATR)\n"
-            f"Riesgo/Ganancia: 1:{rr:.1f}\n"
-            f"Confianza Gemini: {confidence}% [{nivel}]\n"
-            f"ADX: {adx_e:.0f} | MFI: {mfi_e:.0f}\n"
-            f"Regimen: {self._market_regime}\n"
-            f"Razon: {razon}"
+            f"[COMPRA] {moneda}/USDT\n"
+            f"---------------------------\n"
+            f"Precio:   {rate:.4f} USDT\n"
+            f"Capital:  ${total_cost:.2f}\n"
+            f"TP:       +2.5%  (+${ganancia_esperada:.2f})\n"
+            f"SL:       -{stop_pct:.1f}%  (-${perdida_max:.2f})\n"
+            f"---------------------------\n"
+            f"IA:       {confidence}% {nivel}\n"
+            f"Mercado:  {self._market_regime}\n"
+            f"Razon:    {razon}"
         )
         return True
 
@@ -1438,8 +1472,8 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
 
         # Filtro 2: cooldown 2h si cualquier pérdida (no solo stop-loss)
         if not ganó:
-            self._loss_cooldown[pair] = time.time() + 7200
-            logger.info(f"[LOSS-COOLDOWN] {pair} en cooldown 2h tras perdida {profit_pct:.2f}%")
+            self._loss_cooldown[pair] = time.time() + 1800
+            logger.info(f"[LOSS-COOLDOWN] {pair} en cooldown 30min tras perdida {profit_pct:.2f}%")
             # Filtro 3: registrar para blacklist dinámica
             self._daily_losses.setdefault(pair, []).append(time.time())
             recent = [t for t in self._daily_losses[pair] if time.time() - t < 86400]
@@ -1448,7 +1482,7 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
                 logger.warning(f"[BLACKLIST-DIN] {pair} bloqueado automaticamente: {len(recent)} losses en 24h")
 
         # Guardar en memoria de aprendizaje con RSI y contexto para detección de patrones
-        last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair)), {})
+        last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair + "_")), {})
         self._trade_memory.append({
             "pair": pair,
             "accion": last_decision.get("accion", "BUY"),
@@ -1464,13 +1498,16 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
             self._trade_memory.pop(0)
 
         # ── Q-Learning: actualizar tabla con resultado del trade ──
-        last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair)), {})
+        last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair + "_")), {})
         q_state = last_decision.get("q_state", 50)
         q_action = 1  # BUY=1 (la acción que tomamos fue comprar)
         reward = self._q_reward(profit_pct / 100, trade.stake_amount)
-        # Calcular next_state aproximado (estado actual sin dataframe — usamos estado actual del mercado)
         next_state = q_state  # aproximación conservadora
+        with self._q_lock:
+            q_val_antes = self._q_table[q_state][q_action]
         self._q_update(q_state, q_action, reward, next_state)
+        with self._q_lock:
+            q_val_despues = self._q_table[q_state][q_action]
         # Guardar experiencia en buffer de replay
         exp = {"state": q_state, "action": q_action, "reward": reward, "next_state": next_state}
         self._experience_replay.append(exp)
@@ -1478,15 +1515,47 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
             self._experience_replay.pop(0)
         # Experience Replay: repasar 32 experiencias pasadas
         self._experience_replay_train()
+
+        # ── Epsilon dinámico: ajustar exploración según racha ──────────────
+        recientes = self._trade_memory[-5:] if len(self._trade_memory) >= 3 else []
+        if recientes:
+            racha_wins = sum(1 for t in recientes[-3:] if t["won"])
+            racha_losses = sum(1 for t in recientes[-3:] if not t["won"])
+            if racha_wins >= 3:
+                # 3 wins seguidos: confiar más en lo aprendido (bajar exploración)
+                self._q_epsilon = max(self._q_epsilon_min, self._q_epsilon * 0.92)
+                logger.info(f"[EPSILON] Racha de 3 WINS — epsilon reducido a {self._q_epsilon:.3f} (más explotación)")
+            elif racha_losses >= 2:
+                # 2 losses seguidos: explorar más para salir del patrón
+                self._q_epsilon = min(0.4, self._q_epsilon * 1.15)
+                logger.info(f"[EPSILON] Racha de 2 LOSSES — epsilon subido a {self._q_epsilon:.3f} (más exploración)")
+
         # Guardar Q-table en disco
         self._save_qtable()
-        logger.info(f"[QLEARN] Actualizado | estado={q_state} | reward={reward:.4f} | epsilon={self._q_epsilon:.3f} | episodios={self._q_episodes}")
 
-        # ── Autopausa: evaluar métricas cada 5 trades ──
+        # ── Log de aprendizaje visible ──────────────────────────────────────
+        resultado_emoji = "✅ WIN" if ganó else "❌ LOSS"
+        patron_rsi = last_decision.get("rsi", "?")
+        confianza_ia = last_decision.get("confianza", "?")
+        logger.info(
+            f"[APRENDIZAJE] {resultado_emoji} | {pair} | {profit_pct:+.2f}% | "
+            f"RSI_entrada={patron_rsi} | IA_conf={confianza_ia}% | "
+            f"Q-estado={q_state} | Q-val: {q_val_antes:.3f} → {q_val_despues:.3f} | "
+            f"reward={reward:.3f} | epsilon={self._q_epsilon:.3f} | episodios={self._q_episodes}"
+        )
+        # Detectar y loguear patrón aprendido si hay suficiente historial
+        pair_hist = [t for t in self._trade_memory if t["pair"] == pair]
+        if len(pair_hist) >= 3:
+            wins_par = [t for t in pair_hist if t["won"]]
+            wr_par = len(wins_par) / len(pair_hist) * 100
+            logger.info(f"[PATRON] {pair} | Historial: {len(wins_par)}W/{len(pair_hist)-len(wins_par)}L ({wr_par:.0f}% WR) | episodios_totales={self._q_episodes}")
+
+        # ── Autopausa + Checklist live: evaluar métricas cada 5 trades ──
         self._trades_since_check += 1
         if self._trades_since_check >= 5:
             self._trades_since_check = 0
             self._check_autopause()
+        self._check_live_readiness()
 
         razones = {
             "roi": "Objetivo de ganancia alcanzado",
@@ -1498,17 +1567,17 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max15palabras"}}"""
             "exit_signal": "Senal de salida de Gemini",
         }
         razon_es = razones.get(exit_reason, exit_reason)
-        last_dec_x = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair)), {})
+        last_dec_x = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair + "_")), {})
         adx_x = last_dec_x.get("adx", 0)
         mfi_x = last_dec_x.get("mfi", 50)
-        emoji = "GANANCIA" if ganó else "PERDIDA"
+        resultado_txt = "[WIN]" if ganó else "[LOSS]"
         _tg(
-            f"{emoji} - {moneda}\n"
-            f"Par: {pair}\n"
-            f"Resultado: {signo}{profit_pct:.2f}% ({signo}${abs(profit_usd):.2f})\n"
-            f"Capital usado: ${trade.stake_amount:.2f}\n"
-            f"Motivo: {razon_es}\n"
-            f"ADX salida: {adx_x:.0f} | MFI salida: {mfi_x:.0f}\n"
-            f"Regimen: {self._market_regime}"
+            f"{resultado_txt} {moneda}/USDT\n"
+            f"---------------------------\n"
+            f"Resultado: {signo}{profit_pct:.2f}%  ({signo}${abs(profit_usd):.2f})\n"
+            f"Capital:   ${trade.stake_amount:.2f}\n"
+            f"Motivo:    {razon_es}\n"
+            f"---------------------------\n"
+            f"Mercado:   {self._market_regime}"
         )
         return True
