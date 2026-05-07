@@ -19,6 +19,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent.parent.parent / ".env")
+except ImportError:
+    pass
+
 # from google import genai  # Eliminado - solo usamos Groq
 # from google.genai import types as genai_types  # Eliminado - solo usamos Groq
 try:
@@ -38,7 +44,7 @@ RATE_LIMIT_SECONDS = 5.0
 
 # Pool de APIs - Solo Groq para evitar bloqueos
 GROQ_API_POOL = [
-    {"key": "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", "model": "llama-3.1-8b-instant", "daily_limit": 14400, "label": "Groq-1"},
+    {"key": os.getenv("GROQ_KEY_1", ""), "model": "llama-3.1-8b-instant", "daily_limit": 14400, "label": "Groq-1"},
     {"key": os.getenv("GROQ_KEY_2", ""), "model": "llama-3.1-8b-instant", "daily_limit": 14400, "label": "Groq-2"},
     {"key": os.getenv("GROQ_KEY_3", ""), "model": "llama-3.1-8b-instant", "daily_limit": 14400, "label": "Groq-3"},
 ]
@@ -187,7 +193,7 @@ class GeminiStrategy(IStrategy):
     # ROI para alta confianza — se aplica dinámicamente en custom_exit
     _roi_high_confidence = {"0": 0.035, "60": 0.025, "120": 0.015}
     trailing_stop = True
-    trailing_stop_positive = 0.010
+    trailing_stop_positive = 0.015
     trailing_stop_positive_offset = 0.025
     trailing_only_offset_is_reached = True
     use_custom_stoploss = True
@@ -673,7 +679,11 @@ class GeminiStrategy(IStrategy):
         mejor_par_str = f"{mejor_par_wr[0]} ({mejor_par_wr[1]['w']}W/{mejor_par_wr[1]['l']}L)" if mejor_par_wr else "sin datos"
 
         signo_total = "+" if total_usd >= 0 else ""
-        _tg(
+
+        # Pedir a Groq un análisis del día en lenguaje natural (Opción C)
+        analisis_ia = self._get_daily_analysis_from_groq(trades, total_usd, winrate, ganadas, perdidas)
+
+        msg = (
             f"Resumen del dia {today}\n"
             f"Resultado total: {signo_total}${total_usd:.2f}\n"
             f"Operaciones: {len(trades)} ({ganadas} ganadoras {perdidas} perdedoras)\n"
@@ -683,9 +693,42 @@ class GeminiStrategy(IStrategy):
             f"\nAprendizaje Q-Learning:\n"
             f"  Episodios: {self._q_episodes} | Epsilon: {self._q_epsilon:.3f}\n"
             f"  Top estados rentables: {top_str}\n"
-            f"  Mejor par historico: {mejor_par_str}\n"
-            f"El bot sigue operando"
+            f"  Mejor par historico: {mejor_par_str}"
         )
+        if analisis_ia:
+            msg += f"\n\nAnalisis IA:\n{analisis_ia}"
+        msg += "\nEl bot sigue operando"
+        _tg(msg)
+
+    def _get_daily_analysis_from_groq(self, trades: list, total_usd: float, winrate: float, ganadas: int, perdidas: int) -> Optional[str]:
+        """Pide a Groq un análisis del día en lenguaje natural. 1 llamada/día."""
+        if not self._gemini_client or not trades:
+            return None
+        try:
+            pairs_won = [t["pair"] for t in trades if t["won"]]
+            pairs_lost = [t["pair"] for t in trades if not t["won"]]
+            signo = "+" if total_usd >= 0 else ""
+            prompt = f"""Eres el analista de un bot de trading crypto. Resume el dia en 3 frases cortas y directas en español.
+
+DATOS DEL DIA:
+- Trades totales: {len(trades)} ({ganadas} ganados, {perdidas} perdidos)
+- Win rate: {winrate:.0f}%
+- Resultado: {signo}${total_usd:.2f} USDT
+- Pares ganadores: {', '.join(pairs_won[:5]) if pairs_won else 'ninguno'}
+- Pares perdedores: {', '.join(pairs_lost[:5]) if pairs_lost else 'ninguno'}
+- Regimen de mercado predominante: {self._market_regime}
+
+INSTRUCCIONES: 3 frases maximo. Frase 1: resultado general. Frase 2: que funcionó. Frase 3: que mejorar mañana. Sin emojis. Sin formato especial."""
+
+            api_entry = self._get_active_api_entry()
+            if not api_entry:
+                return None
+            raw = self._call_llm(api_entry, prompt)
+            self._last_gemini_call = time.time()
+            return raw.strip()[:400]
+        except Exception as e:
+            logger.debug(f"[DAILY-IA] Error en analisis diario: {e}")
+            return None
 
     @staticmethod
     def _calc_rsi(series: pd.Series, period: int = 14) -> pd.Series:
@@ -966,11 +1009,11 @@ class GeminiStrategy(IStrategy):
         # Transición / rango    → equilibrado   (RSI<55)
         # Bajista / volátil     → estricto       (RSI<40, solo capitulaciones)
         if regime in ("TENDENCIA_ALCISTA_CALMADA", "TENDENCIA_ALCISTA_NORMAL"):
-            rsi_umbral, macd_req, f2_score_min = 65, False, 2
+            rsi_umbral, macd_req, f2_score_min = 60, False, 2
         elif regime in ("TENDENCIA_ALCISTA_VOLATIL", "TRANSICION", "RANGO_ESTRECHO"):
             rsi_umbral, macd_req, f2_score_min = 55, True, 3
         else:  # BAJISTA_*, CAOS, UNKNOWN
-            rsi_umbral, macd_req, f2_score_min = 40, True, 4
+            rsi_umbral, macd_req, f2_score_min = 50, True, 4
 
         # ── NIVEL 1: prefiltro open source (RSI + MACD alcista + EMA) ─────────
         # Basado en EnhancedIndicatorStrategy y NostalgiaForInfinityX7 (GitHub)
@@ -1221,18 +1264,88 @@ class GeminiStrategy(IStrategy):
         dataframe.loc[dataframe["gemini_sell"] == 1, "exit_long"] = 1
         return dataframe
 
+    def _get_gemini_exit_decision(self, pair: str, current_profit: float, trade_duration_min: float) -> Optional[str]:
+        """Pregunta a Groq si conviene cerrar el trade ahora o esperar más.
+        Solo se llama cuando hay profit >0.5% o pérdida >0.8% para ahorrar llamadas.
+        Retorna 'cerrar' si la IA recomienda salir, None si recomienda esperar.
+        """
+        if not self._gemini_client:
+            return None
+
+        elapsed = time.time() - self._last_gemini_call
+        if elapsed < RATE_LIMIT_SECONDS:
+            time.sleep(RATE_LIMIT_SECONDS - elapsed)
+
+        try:
+            last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair + "_")), {})
+            atr_pct = last_decision.get("atr_pct", 1.0)
+            regime = self._market_regime
+            profit_pct = round(current_profit * 100, 2)
+            signo = "+" if profit_pct >= 0 else ""
+
+            prompt = f"""Eres un trader crypto. Trade abierto en {pair}. RESPONDE SOLO JSON.
+
+ESTADO DEL TRADE:
+- Profit actual: {signo}{profit_pct}%
+- Duracion: {trade_duration_min:.0f} minutos
+- ATR (volatilidad): {atr_pct:.2f}%
+- Regimen actual: {regime}
+
+PREGUNTA: ¿Cierro el trade ahora o espero más?
+
+REGLAS:
+- Cierra si: profit > ATR*1.5 y hay señal de reversión
+- Cierra si: perdida > 0.8% y regime BAJISTA
+- Cierra si: duracion > 90min y profit < 0.5%
+- Espera si: profit creciendo y regime ALCISTA
+- Espera si: profit < 1.0% y trade < 30min
+
+JSON: {{"accion":"CERRAR","razon":"max8palabras"}} o {{"accion":"ESPERAR","razon":"max8palabras"}}"""
+
+            api_entry = self._get_active_api_entry()
+            if not api_entry:
+                return None
+
+            raw = self._call_llm(api_entry, prompt)
+            self._last_gemini_call = time.time()
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            decision = json.loads(raw)
+            accion = decision.get("accion", "ESPERAR").upper()
+            razon = decision.get("razon", "")[:50]
+            logger.info(f"[EXIT-IA] {pair} | {accion} | profit={signo}{profit_pct}% | razon={razon}")
+            return "ia_exit" if accion == "CERRAR" else None
+
+        except Exception as e:
+            logger.debug(f"[EXIT-IA] Error en decision de salida: {e}")
+            return None
+
     def custom_exit(self, pair: str, trade, current_time, current_rate: float,
                     current_profit: float, **kwargs) -> Optional[str]:
-        """TP dinamico: trades con confianza 85%+ esperan hasta 3.5% de ganancia."""
+        """TP dinamico + IA decide salida cuando hay señal clara."""
         last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair + "_")), {})
         confidence = last_decision.get("confianza", 0)
+        trade_duration = (current_time - trade.open_date_utc).total_seconds() / 60
+
+        # TP alto para trades de alta confianza
         if confidence >= 85:
-            trade_duration = (current_time - trade.open_date_utc).total_seconds() / 60
             if trade_duration <= 60 and current_profit >= 0.035:
                 logger.info(f"[TP-ALTO] {pair} | conf={confidence}% | profit={current_profit*100:.2f}% >= 3.5%")
                 return "tp_alta_confianza"
             elif trade_duration <= 120 and current_profit >= 0.025:
                 return None  # dejar que minimal_roi normal lo cierre
+
+        # IA decide salida: solo consultar si hay profit relevante o pérdida creciente
+        # Umbral bajo para no desperdiciar llamadas en trades neutros
+        profit_pct = current_profit * 100
+        consultar_ia = (
+            (profit_pct >= 0.8 and trade_duration >= 15) or   # profit >0.8% y ya lleva 15min
+            (profit_pct <= -0.7 and trade_duration >= 10)      # perdida >0.7% tras 10min
+        )
+        if consultar_ia:
+            exit_signal = self._get_gemini_exit_decision(pair, current_profit, trade_duration)
+            if exit_signal:
+                return exit_signal
+
         return None
 
     def _get_gemini_decision(
@@ -1274,9 +1387,9 @@ class GeminiStrategy(IStrategy):
             social_avg = int((news_sentiment + reddit_score) / 2)
             social_label = "BULLISH" if social_avg > 60 else ("BEARISH" if social_avg < 40 else "NEUTRAL")
 
-            # Hora UTC — evitar operar entre 00:00-04:00 UTC (caída de madrugada)
+            # Hora UTC — evitar operar entre 23:00-04:00 UTC (caída nocturna ampliada)
             hora_utc = datetime.now(timezone.utc).hour
-            hora_peligro = "SI" if 1 <= hora_utc < 3 else "NO"
+            hora_peligro = "SI" if (hora_utc >= 23 or hora_utc < 4) else "NO"
 
             # Memoria activa: aprender de errores por par específico
             pair_trades = [t for t in self._trade_memory if t["pair"] == pair]
