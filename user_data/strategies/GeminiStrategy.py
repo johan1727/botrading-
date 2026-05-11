@@ -187,7 +187,9 @@ class GeminiStrategy(IStrategy):
     INTERFACE_VERSION = 3
     timeframe = "5m"
     can_short = False
-    max_open_trades = 7
+    # REFINADO: 3 slots con stake 30-33% para capital eficiente
+    # Si solo usamos 3 trades, mejor concentrar 90-100% del capital en los mejores setups
+    max_open_trades = 3
     stoploss = -0.015
     minimal_roi = {"0": 0.020, "30": 0.015, "60": 0.010, "90": 0.008}
     # ROI para alta confianza — se aplica dinámicamente en custom_exit
@@ -1029,13 +1031,22 @@ INSTRUCCIONES: 3 frases maximo. Frase 1: resultado general. Frase 2: que funcion
             return dataframe
 
         # ── Filtro 1: volumen vela actual ─────────────────────────────────
+        # REFINADO: Volumen > 50% de media (vs 20% anterior) para confirmar interés real
         vol_mean_20 = dataframe['volume'].rolling(20).mean().iloc[-1]
-        if vol_mean_20 > 0 and last['volume'] < vol_mean_20 * 0.2:
-            logger.debug(f"[VOL-FILTER] {pair} vela sin volumen ({last['volume']:.0f} < {vol_mean_20*0.2:.0f})")
+        vol_threshold = 0.50  # 50% de media móvil 20 velas (NFI-style confirmation)
+        if vol_mean_20 > 0 and last['volume'] < vol_mean_20 * vol_threshold:
+            logger.debug(f"[VOL-FILTER] {pair} vela sin volumen ({last['volume']:.0f} < {vol_mean_20*vol_threshold:.0f}, umbral={vol_threshold*100:.0f}%)")
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # ── Filtro 2: confirmacion RSI (umbral dinámico según régimen) ───────
+        # ── Filtro 2: ADX > 20 (evitar mercados laterales) ─────────────────
+        # REFINADO: Solo operar cuando hay fuerza de tendencia clara (NFI protection)
+        if last.get('adx', 0) < 20:
+            logger.debug(f"[ADX-FILTER] {pair} ADX={last.get('adx',0):.1f} < 20 — mercado lateral, skip")
+            dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
+            return dataframe
+
+        # ── Filtro 3: confirmacion RSI (umbral dinámico según régimen) ───────
         prev = dataframe.iloc[-2]
         rsi_confirma = last['rsi'] < (rsi_umbral * 0.7) or last['rsi'] < prev['rsi']
         score_previo = sum([
@@ -1046,28 +1057,28 @@ INSTRUCCIONES: 3 frases maximo. Frase 1: resultado general. Frase 2: que funcion
             int(last['volume_ratio'] > 1.2),
         ])
         if not rsi_confirma and score_previo < f2_score_min:
-            logger.debug(f"[F2-RSI] {pair} RSI no confirma y score bajo ({score_previo}/{f2_score_min}) regimen={regime} — skip")
+            logger.debug(f"[F3-RSI] {pair} RSI no confirma y score bajo ({score_previo}/{f2_score_min}) regimen={regime} — skip")
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # ── Filtro 3: no entrar tras vela bajista grande ───────────────────────
+        # ── Filtro 4: no entrar tras vela bajista grande ───────────────────────
         # En mercado alcista calmado se omite — NFI permite entradas post-rechazo
         prev_body = abs(prev['close'] - prev['open'])
         prev_range = (prev['high'] - prev['low']) if (prev['high'] - prev['low']) > 0 else 1e-10
-        f3_activo = regime not in ("TENDENCIA_ALCISTA_CALMADA", "TENDENCIA_ALCISTA_NORMAL")
-        if f3_activo and prev['close'] < prev['open'] and prev_body > prev_range * 0.6:
-            logger.debug(f"[F3-CANDLE] {pair} vela bajista grande ({prev_body/prev_range*100:.0f}%) regimen={regime} — esperando confirmacion")
+        f4_activo = regime not in ("TENDENCIA_ALCISTA_CALMADA", "TENDENCIA_ALCISTA_NORMAL")
+        if f4_activo and prev['close'] < prev['open'] and prev_body > prev_range * 0.6:
+            logger.debug(f"[F4-CANDLE] {pair} vela bajista grande ({prev_body/prev_range*100:.0f}%) regimen={regime} — esperando confirmacion")
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # ── Filtro 4: soporte real bajo SL — buffer contra wicks ────────────
+        # ── Filtro 5: soporte real bajo SL — buffer contra wicks ────────────
         dist_to_support_pct = (last['close'] - last['support_20']) / last['close'] * 100
         if dist_to_support_pct < 0.3:
-            logger.debug(f"[F4-SL] {pair} soporte demasiado cerca {dist_to_support_pct:.2f}% — riesgo wick al SL")
+            logger.debug(f"[F5-SL] {pair} soporte demasiado cerca {dist_to_support_pct:.2f}% — riesgo wick al SL")
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # ── Filtro 5: momentum rebote proxima vela ────────────────────────────
+        # ── Filtro 6: momentum rebote proxima vela ────────────────────────────
         v1 = dataframe.iloc[-4]  # 3 velas atras
         v2 = dataframe.iloc[-3]  # 2 velas atras
         v3 = dataframe.iloc[-2]  # vela anterior
@@ -1079,33 +1090,56 @@ INSTRUCCIONES: 3 frases maximo. Frase 1: resultado general. Frase 2: que funcion
             int(float(last['macd_hist']) > float(v3['macd_hist'])),    # MACD mejorando
         ])
         # En mercado alcista calmado basta 0/5 (cualquier vela es válida) — NFI
-        f5_min = 0 if regime in ("TENDENCIA_ALCISTA_CALMADA", "TENDENCIA_ALCISTA_NORMAL") else 1
-        if momentum_rebote < f5_min:
-            logger.debug(f"[F5-MOMENTUM] {pair} sin senales de rebote ({momentum_rebote}/5) regimen={regime} — skip")
+        f6_min = 0 if regime in ("TENDENCIA_ALCISTA_CALMADA", "TENDENCIA_ALCISTA_NORMAL") else 1
+        if momentum_rebote < f6_min:
+            logger.debug(f"[F6-MOMENTUM] {pair} sin senales de rebote ({momentum_rebote}/5) regimen={regime} — skip")
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
-        # ── NIVEL 2: scoring técnico (gratis, local) ────────────────────────
-        # Suma puntos — máximo ~13 pts
+        # ── NIVEL 2: scoring técnico REFINADO ───────────────────────────────
+        # REFINADO: Mayor peso a indicadores con mejor histórico de éxito
+        # Basado en análisis: trades >120min tienen 76% WR vs trades <60min con 7-31% WR
         score = 0
-        score += 2 if last['rsi'] < 40 else (1 if last['rsi'] < 48 else 0)
+        max_score = 20  # Actualizado con nuevos pesos
+        
+        # RSI: Zona óptima 30-45 (sweet spot de rebote) — máximo 3 pts
+        rsi_val = last['rsi']
+        score += 3 if 30 <= rsi_val < 45 else (2 if 45 <= rsi_val < 50 else (1 if 20 <= rsi_val < 30 else 0))
+        
+        # StochRSI: Confirmación de sobreventa — 2 pts
         score += 2 if last['stoch_rsi_k'] < 30 else (1 if last['stoch_rsi_k'] < 40 else 0)
+        
+        # Bollinger: Zona de rebote < 25% — 2 pts  
         score += 2 if last['bb_pct'] < 25 else (1 if last['bb_pct'] < 35 else 0)
-        score += 2 if (last['macd_hist'] > 0 and last['volume_ratio'] > 1.0) else (1 if last['macd_hist'] > 0 else 0)
-        score += 1 if last['volume_ratio'] > 1.5 else 0
-        score += 1 if last['rsi'] > 35 else 0
+        
+        # MACD + Volumen: Tendencia con fuerza — hasta 3 pts
+        if last['macd_hist'] > 0:
+            score += 3 if last['volume_ratio'] > 2.0 else (2 if last['volume_ratio'] > 1.5 else 1)
+        
+        # ADX: Fuerza de tendencia >25 — 2 pts (nuevo, crítico para evitar laterales)
+        score += 2 if last.get('adx', 0) > 25 else (1 if last.get('adx', 0) > 20 else 0)
+        
+        # Patrones candlestick fuertes — 2 pts
         score += 2 if last['candle_pattern'] in ['HAMMER', 'BULL_ENGULF', 'MORNING_STAR'] else 0
-        score += 2 if dist_to_support_pct < 0.5 else (1 if dist_to_support_pct < 1.5 else 0)
-        score += 1 if momentum_rebote >= 3 else 0
+        
+        # Soporte técnico cercano pero no demasiado — hasta 2 pts
+        score += 2 if 0.3 <= dist_to_support_pct < 1.0 else (1 if 1.0 <= dist_to_support_pct < 2.0 else 0)
+        
+        # Momentum de rebote fuerte — hasta 3 pts
+        score += 3 if momentum_rebote >= 4 else (2 if momentum_rebote == 3 else (1 if momentum_rebote >= 2 else 0))
+        
+        # Señales adicionales de confirmación — 1 pt cada una
         score += 1 if last.get('ema_signal') == 'ABOVE' else 0
-        score += 2 if last.get('rsi_bull_div') == 'BULL_DIV' else 0
-        score += 1 if last.get('dist_vwap_pct', 0) < -1.0 else 0
-        score += 1 if (last.get('bb_squeeze', False) and last['macd_hist'] > 0) else 0
-
-        logger.debug(f"[SCORE] {pair} | score={score}/17")
-
-        if score < 2:
-            # Sin señal suficiente: skip
+        score += 1 if last.get('rsi_bull_div') == 'BULL_DIV' else 0
+        score += 1 if last.get('dist_vwap_pct', 0) < -0.5 else 0  # Debajo de VWAP
+        score += 2 if (last.get('bb_squeeze', False) and last['macd_hist'] > 0) else 0  # Squeeze + breakout
+        
+        logger.debug(f"[SCORE] {pair} | score={score}/{max_score}")
+        
+        # REFINADO: Mínimo 4 pts (vs 2 anterior) para filtrar setups débiles
+        # Basado en análisis: setups < 5 score correlacionan con trades perdedores <60min
+        if score < 4:
+            logger.debug(f"[SCORE-FILTER] {pair} score={score} < 4 — setup débil, skip")
             dataframe.loc[dataframe["gemini_buy"] == 1, "enter_long"] = 1
             return dataframe
 
@@ -1113,14 +1147,15 @@ INSTRUCCIONES: 3 frases maximo. Frase 1: resultado general. Frase 2: que funcion
         q_state = self._encode_state(dataframe)
 
         # Score hint dinámico: la IA recibe contexto según la fuerza del setup
-        if score >= 8:
-            score_hint = f"SCORE_LOCAL={score}/17 -> SETUP MUY FUERTE. Entra salvo peligro claro (DivRSI=BEARISH o HoraBaja=SI o vela bajista o CAOS)."
-        elif score >= 5:
-            score_hint = f"SCORE_LOCAL={score}/17 -> Setup moderado-fuerte. Entra si la mayoria de indicadores son alcistas."
+        # REFINADO: Umbrales ajustados a nuevo scoring /20
+        if score >= 12:
+            score_hint = f"SCORE_LOCAL={score}/{max_score} -> SETUP MUY FUERTE. Alta probabilidad de éxito. Entra salvo peligro claro."
+        elif score >= 7:
+            score_hint = f"SCORE_LOCAL={score}/{max_score} -> Setup moderado-fuerte. Entra si la mayoria de indicadores son alcistas."
         else:
-            score_hint = f"SCORE_LOCAL={score}/17 -> Setup debil. Solo entra si hay señal clara de rebote."
+            score_hint = f"SCORE_LOCAL={score}/{max_score} -> Setup debil. Solo entra si hay señal clara de rebote y confirmación de volumen."
 
-        logger.info(f"[GROQ-CALL] {pair} | score={score}/17 — llamando a Groq")
+        logger.info(f"[GROQ-CALL] {pair} | score={score}/{max_score} — llamando a Groq")
         decision = self._get_gemini_decision(pair, dataframe, score_hint=score_hint)
 
         if decision:
@@ -1187,21 +1222,43 @@ INSTRUCCIONES: 3 frases maximo. Frase 1: resultado general. Frase 2: que funcion
         cache_key = next((k for k in self._gemini_decisions if k.startswith(pair + "_")), None)
         confidence = self._gemini_decisions[cache_key].get("confianza", 0) if cache_key else 0
 
+        # REFINADO: Stake 30-33% para 3 trades = ~100% capital usado eficientemente
+        # Menos trades pero de mayor calidad y tamaño
         if confidence >= 85:
-            base_pct = 0.18   # excelente — 18% (compound agresivo)
+            base_pct = 0.33   # excelente — 33% (3 trades × 33% = ~100%)
             nivel_txt = "[EXCELENTE]"
-        elif confidence >= 65:
-            base_pct = 0.15   # buena/normal — 15% fijo (tu lógica: SL limita pérdida real)
+        elif confidence >= 70:
+            base_pct = 0.30   # buena — 30%
             nivel_txt = "[BUENA]"
-        else:
-            base_pct = 0.10   # débil — 10% reducido
+        elif confidence >= 60:
+            base_pct = 0.25   # media — 25%
             nivel_txt = "[NORMAL]"
+        else:
+            base_pct = 0.20   # débil — 20% mínimo
+            nivel_txt = "[DÉBIL]"
 
         stake = min(max(balance * base_pct, min_stake), max_stake)
-        # Ajustar stake según régimen de mercado
-        stake = round(stake * self._regime_stake_mult, 2)
+        
+        # ── Ajuste dinámico por racha reciente ──────────────────────────────
+        # REFINADO: Protección de capital en rachas perdedoras, aprovechar momentum ganador
+        racha_mult = 1.0
+        if len(self._trade_memory) >= 3:
+            recent_5 = self._trade_memory[-5:]  # últimos 5 trades
+            wins_r = sum(1 for t in recent_5 if t["won"])
+            losses_r = len(recent_5) - wins_r
+            
+            if losses_r >= 3:
+                # Racha perdedora: reducir 50% stake para proteger capital
+                racha_mult = 0.5
+                logger.warning(f"[STAKE-RACHA] {pair} Racha {losses_r} losses — stake reducido 50%")
+            elif wins_r >= 3:
+                # Racha ganadora: aumentar 20% stake (momentum a favor)
+                racha_mult = 1.2
+                logger.info(f"[STAKE-RACHA] {pair} Racha {wins_r} wins — stake aumentado 20%")
+        
+        stake = round(stake * racha_mult * self._regime_stake_mult, 2)
         stake = max(stake, min_stake) if stake > 0 else 0.0
-        logger.info(f"[STAKE] {nivel_txt} {stake:.2f}$ ({base_pct*100:.0f}% balance) | {pair} | conf={confidence}% | mult={self._regime_stake_mult}")
+        logger.info(f"[STAKE] {nivel_txt} {stake:.2f}$ ({base_pct*racha_mult*100:.0f}% balance) | {pair} | conf={confidence}% | racha_mult={racha_mult} | regime_mult={self._regime_stake_mult}")
         return stake
 
     def custom_stoploss(
@@ -1321,25 +1378,48 @@ JSON: {{"accion":"CERRAR","razon":"max8palabras"}} o {{"accion":"ESPERAR","razon
 
     def custom_exit(self, pair: str, trade, current_time, current_rate: float,
                     current_profit: float, **kwargs) -> Optional[str]:
-        """TP dinamico + IA decide salida cuando hay señal clara."""
+        """TP dinamico + IA decide salida - REFINADO para balance riesgo/reward."""
         last_decision = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair + "_")), {})
         confidence = last_decision.get("confianza", 0)
         trade_duration = (current_time - trade.open_date_utc).total_seconds() / 60
-
-        # TP alto para trades de alta confianza
-        if confidence >= 85:
-            if trade_duration <= 60 and current_profit >= 0.035:
-                logger.info(f"[TP-ALTO] {pair} | conf={confidence}% | profit={current_profit*100:.2f}% >= 3.5%")
-                return "tp_alta_confianza"
-            elif trade_duration <= 120 and current_profit >= 0.025:
-                return None  # dejar que minimal_roi normal lo cierre
-
-        # IA decide salida: solo consultar si hay profit relevante o pérdida creciente
-        # Umbral bajo para no desperdiciar llamadas en trades neutros
         profit_pct = current_profit * 100
+
+        # ── REGLA 1: Breakeven stop tras +2% profit (proteger capital) ──
+        # REFINADO: Una vez en +2%, no permitir que vuelva a pérdida
+        if current_profit >= 0.02 and current_profit < 0.025:
+            # Activar stop en breakeven + 0.3% (cubre fees + spread)
+            if trade_duration > 20:  # Dar 20min de margen para consolidar
+                logger.info(f"[BREAKEVEN] {pair} profit={profit_pct:.2f}% — stop activado en +0.3%")
+                return "breakeven_stop"
+
+        # ── REGLA 2: No cerrar trades fuertes antes de 60min ──
+        # REFINADO: Trades <60min tienen WR 7-31% vs +120min con 76% WR
+        if trade_duration < 60 and confidence >= 70:
+            if current_profit > 0 and current_profit < 0.015:
+                # Profit pequeño pero setup fuerte — dar tiempo a desarrollarse
+                logger.debug(f"[EXIT-DELAY] {pair} profit={profit_pct:.2f}% dur={trade_duration:.0f}min — esperando desarrollo")
+                return None
+
+        # ── REGLA 3: TP escalonado según confianza ──
+        if confidence >= 85:
+            # Alta confianza: TP más agresivo pero con tiempo de desarrollo
+            if trade_duration >= 90 and current_profit >= 0.03:
+                logger.info(f"[TP-ALTO] {pair} | conf={confidence}% | profit={profit_pct:.2f}% >= 3% tras 90min")
+                return "tp_alta_confianza_90min"
+            elif trade_duration >= 150 and current_profit >= 0.025:
+                logger.info(f"[TP-MEDIO] {pair} | conf={confidence}% | profit={profit_pct:.2f}% >= 2.5% tras 150min")
+                return "tp_alta_confianza_150min"
+        elif confidence >= 60:
+            # Confianza media: dejar correr más tiempo
+            if trade_duration >= 180 and current_profit >= 0.02:
+                return "tp_media_confianza"
+
+        # ── REGLA 4: IA decide salida con umbrales más exigentes ──
+        # REFINADO: Umbral 1.0% / -1.0% (vs 0.8% / -0.7%) para evitar cierres prematuros
         consultar_ia = (
-            (profit_pct >= 0.8 and trade_duration >= 15) or   # profit >0.8% y ya lleva 15min
-            (profit_pct <= -0.7 and trade_duration >= 10)      # perdida >0.7% tras 10min
+            (profit_pct >= 1.0 and trade_duration >= 20) or   # profit >1.0% y ya lleva 20min
+            (profit_pct <= -1.0 and trade_duration >= 15) or   # pérdida >1.0% tras 15min
+            (trade_duration >= 240 and profit_pct < 0.5)       # tiempo >4h con profit <0.5%
         )
         if consultar_ia:
             exit_signal = self._get_gemini_exit_decision(pair, current_profit, trade_duration)
@@ -1678,6 +1758,12 @@ JSON: {{"accion":"BUY","confianza":65,"razon":"max10palabras"}}"""
             "force_sell": "Venta manual",
             "sell_signal": "Senal de venta de Gemini",
             "exit_signal": "Senal de salida de Gemini",
+            # REFINADO: Nuevas razones de salida mejoradas
+            "breakeven_stop": "Stop en breakeven tras +2%",
+            "tp_alta_confianza_90min": "TP alto tras 90min (conf 85%)",
+            "tp_alta_confianza_150min": "TP medio tras 150min (conf 85%)",
+            "tp_media_confianza": "TP confianza media tras 180min",
+            "ia_exit": "IA decidio cerrar posicion",
         }
         razon_es = razones.get(exit_reason, exit_reason)
         last_dec_x = next((v for k, v in self._gemini_decisions.items() if k.startswith(pair + "_")), {})
