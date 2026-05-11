@@ -1,8 +1,8 @@
 {
-  "max_open_trades": 5,
+  "max_open_trades": 3,
   "stake_currency": "USDT",
   "stake_amount": "unlimited",
-  "tradable_balance_ratio": 0.75,
+  "tradable_balance_ratio": 0.95,
   "fiat_display_currency": "USD",
   "dry_run": true,
   "dry_run_wallet": 1000,
@@ -10,49 +10,42 @@
   "trading_mode": "spot",
   "exchange": {
     "name": "kucoin",
-    "key": "69f79885b70d0a0001cf0bb2",
-    "secret": "17025ac2-a4ad-4a63-a293-974972ae26e5",
-    "password": "Miule1996.",
+    "key": "",
+    "secret": "",
+    "password": "",
     "ccxt_config": {
-      "adjustForTimeDifference": true,
+      "enableRateLimit": true,
       "options": {
-        "timeDifference": -30000
+        "defaultType": "spot",
+        "adjustForTimeDifference": true
       }
     },
     "ccxt_async_config": {
+      "enableRateLimit": true,
       "aiohttp_trust_env": true,
       "family": 4,
-      "adjustForTimeDifference": true,
       "options": {
-        "timeDifference": -30000
+        "defaultType": "spot",
+        "adjustForTimeDifference": true
       }
     },
     "pair_whitelist": [
-      "BTC/USDT", "ETH/USDT"
+      "BTC/USDT", "ETH/USDT", "SUI/USDT", "DOT/USDT"
     ],
     "pair_blacklist": [
       "USDC/USDT", "PAXG/USDT", "XAUT/USDT", "KCS/USDT",
-      ".*DOWN/USDT", ".*UP/USDT", ".*BEAR/USDT", ".*BULL/USDT",
-      "DASH/USDT", "BILL/USDT", "RAVE/USDT", "MEGA/USDT",
-      "AI/USDT", "TAO/USDT", "LUNC/USDT", "PROS/USDT", "CHIP/USDT"
+      ".*DOWN/USDT", ".*UP/USDT", ".*BEAR/USDT", ".*BULL/USDT"
     ]
   },
   "pairlists": [
-    {
-      "method": "VolumePairList",
-      "number_assets": 100,
-      "sort_key": "quoteVolume",
-      "min_value": 1000000,
-      "refresh_period": 3600
-    },
     {
       "method": "StaticPairList"
     }
   ],
   "telegram": {
     "enabled": true,
-    "token": "8298976121:AAEHcMysV_zX3msnkNu9CHGfLQn6_9FC0rw",
-    "chat_id": "6729779078",
+    "token": "",
+    "chat_id": "",
     "notification_settings": {
       "status": "on",
       "warning": "on",
@@ -75,16 +68,17 @@
     "listen_port": 8080,
     "verbosity": "error",
     "enable_openapi": false,
-    "jwt_secret_key": "cambiar-por-string-aleatorio-largo",
+    "jwt_secret_key": "cambia-esto-por-un-string-aleatorio-largo",
     "CORS_origins": [],
     "username": "admin",
-    "password": "geminibot2026"
+    "password": "cambia-esta-password"
   },
-  "bot_name": "GeminiBot-KuCoin-DryRun",
+  "bot_name": "GeminiBot-DryRun",
   "strategy": "GeminiStrategy",
   "strategy_path": "user_data/strategies/",
   "initial_state": "running",
-  "force_entry_enable": false,
+  "force_entry_enable": true,
+  "force_exit_enable": true,
   "internals": {
     "process_throttle_secs": 5
   },

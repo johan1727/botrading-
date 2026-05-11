@@ -50,8 +50,8 @@ GROQ_API_POOL = [
 ]
 
 # Telegram directo (sin python-telegram-bot)
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8298976121:AAEHcMysV_zX3msnkNu9CHGfLQn6_9FC0rw")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "6729779078")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 # CryptoPanic — noticias crypto en tiempo real (tier gratuito, sin API key)
 CRYPTO_NEWS_CACHE: dict = {"data": [], "sentiment": 50, "ts": 0.0}

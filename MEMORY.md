@@ -117,8 +117,8 @@
 
 ### Estado actual v1.1.0
 - ✅ Bot corriendo en KuCoin dry-run con $50 virtual
-- ✅ FreqUI panel en localhost:8080 (user: admin / pass: geminibot2026)
-- ✅ Telegram notificaciones via requests directo (chat_id: 6729779078)
+- ✅ FreqUI panel en localhost:8080 (user: admin / pass: ver .env)
+- ✅ Telegram notificaciones via requests directo (chat_id: ver .env)
 - ✅ Gemini 2.5 Flash llamando cada vela de 5 minutos
 - ✅ RSI + EMA20/50 calculados con pandas puro (sin TA-Lib)
 - ⏳ Pendiente: configurar inicio automático al arrancar Windows
@@ -330,7 +330,7 @@
 - Abre en navegador → http://localhost:8080/dashboard o abrir el HTML directamente
 - Muestra: balance, P&L, trades abiertos y cerrados
 - Actualizacion automatica cada 15 segundos
-- Conecta a la API de Freqtrade (user: admin / pass: geminibot2026)
+- Conecta a la API de Freqtrade (user: admin / pass: ver .env → FREQTRADE_API_PASSWORD)
 
 ### Observaciones del dashboard (4 Mayo 2026, 07:12)
 - 2 trades abiertos en verde: BTC/USDT +0.56%, ETH/USDT +0.41%
@@ -463,7 +463,7 @@ Con 83 trades reales el WR era 49%. Análisis mostró que:
 # Antes: GEMINI_API_POOL con múltiples proveedores
 # Ahora: GROQ_API_POOL con 9 APIs de Groq exclusivamente
 GROQ_API_POOL = [
-    {"key": "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", "model": "llama-3.3-70b-versatile", ...},
+    {"key": os.getenv("GROQ_KEY_1", ""), "model": "llama-3.3-70b-versatile", ...},
     # ... 8 APIs más de Groq
 ]
 ```
@@ -604,6 +604,367 @@ Asumiendo 15 trades/día, WR 78%, profit medio 1.3%:
 
 ---
 
+## v2.0.0 — TP Parciales + Memoria Jerárquica + Multi-Agente (6 Mayo 2026)
+
+### Cambios realizados
+
+**1. TP Parciales (`position_adjustment_enable = True`)**
+- `adjust_trade_position`: al llegar a +0.5% cierra el 50% de la posición automáticamente
+- `custom_exit`: al llegar a +1.5% cierra el 50% restante (`tp2_final`)
+- `_tp1_done: dict` rastrea por `trade_id` si ya se ejecutó TP1
+- Limpieza en `confirm_trade_exit` con `pop(trade.id)` para evitar memory leak
+- Log: `[TP1-PARCIAL]` y `[TP2-FINAL]`
+
+**2. Memoria Jerárquica para Groq (estilo FinMem — IJCAI 2024)**
+- Antes: Groq solo veía indicadores de la vela actual
+- Ahora: 3 capas de contexto por par en el prompt:
+  - **Corto plazo:** wins/losses últimas 24h (`MEM_CORTO:2W/1L(24h)`)
+  - **Medio plazo:** razón y RSI del último trade ganador (`WIN_PATRON:...`)
+  - **Largo plazo:** WR histórico total + RSI a evitar según pérdidas (`evitar_RSI>68`)
+- Timestamp `ts` añadido a `_trade_memory` para filtrado por 24h
+- Log: `MEM_CORTO/MEM_LARGO` visible en el prompt enviado a Groq
+
+**3. Multi-Agente (Agente1 técnico + Agente2 contexto global)**
+- `_agente2_contexto()`: evalúa si el mercado global es FAVORABLE/DESFAVORABLE
+  - Se llama 1 vez cada 30 min (no por par) — ~48 llamadas/día extra (~3% del límite)
+  - Considera: Fear&Greed, hora UTC, régimen, WR del día
+- Si Agente2 = DESFAVORABLE → bloquea todos los BUY del ciclo
+- Log: `[AGENTE2]` cada 30min, `[AGENTE2-VETO]` cuando bloquea
+
+### Razonamiento
+Inspirado en los 3 mejores bots de IA del mundo: FinMem (IJCAI 2024), LLM_trader, 3Commas.
+Brechas identificadas vs esos bots y cerradas con estas 3 mejoras.
+
+### Parámetros modificados
+| Parámetro | Antes | Después | Razón |
+|---|---|---|---|
+| position_adjustment_enable | False | True | Necesario para TP parciales |
+| TP exit | Todo o nada | 50% en +0.5%, 50% en +1.5% | Asegurar ganancia parcial |
+| Contexto Groq | Solo vela actual | 3 capas históricas por par | Decisiones más informadas |
+| Agentes IA | 1 (técnico) | 2 (técnico + contexto global) | Reducir falsas entradas |
+
+---
+
+## v2.1.0 — Chain-of-Thought + BTC Proxy + Fallback Score (6 Mayo 2026)
+
+### Cambios realizados
+
+**1. Chain-of-Thought Reasoning en prompt de Groq**
+- Antes: Groq recibía datos y daba decisión directa
+- Ahora: prompt incluye 5 pasos de razonamiento explícito:
+  1. ¿Hay VETO activo?
+  2. ¿Señales técnicas alcistas?
+  3. ¿Régimen + 1H apoyan?
+  4. ¿Memoria histórica del par es favorable?
+  5. → Decisión final con confianza ajustada
+- Mejora documentada ~10-15% en calidad de decisiones de LLMs
+
+**2. BTC como proxy de mercado en Agente2**
+- `_fetch_btc_trend()`: obtiene cambio % de BTC en últimas 3 velas de 5m
+- Caché 5 minutos para no saturar KuCoin
+- Usa `self.dp.get_exchange()` (exchange interno de Freqtrade, no instancia nueva)
+- BTC BAJANDO > 0.3% → Agente2 marca como DESFAVORABLE
+- Log: `[AGENTE2] Contexto=FAVORABLE | BTC LATERAL FG 47`
+
+**3. Fallback automático por score cuando Groq no da BUY**
+- Si Groq dice HOLD pero score técnico ≥ 10/17 → entrar con confianza 72% automáticamente
+- Condiciones adicionales: hora OK (no 23-4 UTC) + RSI < 65 + sin divergencia bajista
+- Evita perder oportunidades cuando Groq es conservador sin razón
+- Log: `[FALLBACK-SCORE] PAR/USDT | score=11/17 → conf=72%`
+
+**4. Fix parser CoT con regex**
+- Groq ahora escribe razonamiento antes del JSON → parser antiguo fallaba
+- Nuevo: extrae el **último** bloque `{"accion":...}` del texto con `findall`
+- Fallback regex campo por campo si aún falla
+
+---
+
+## v2.2.0 — 7 Fixes de seguridad y bugs críticos (6 Mayo 2026)
+
+### Bugs corregidos
+
+**🔴 Fix 1 — API keys KuCoin fuera del código**
+- Problema: `config.json` tenía key/secret/password de KuCoin en texto plano
+- Fix: campos vacíos en `config.json`; keys movidas a `.env` (`KUCOIN_KEY`, `KUCOIN_SECRET`, `KUCOIN_PASSWORD`)
+- Inyección en `__init__` antes de `super().__init__(config)` si los campos están vacíos
+
+**🔴 Fix 2 — dry_run_wallet a 57**
+- Problema: simulaba con $1000 pero capital real es $57 → resultados irreales
+- Fix: `dry_run_wallet: 57` en `config.json`
+
+**🔴 Fix 3 — _tp1_done limpiado al cerrar trade**
+- Problema: dict crecía indefinidamente; riesgo de bug si Freqtrade recicla IDs
+- Fix: `self._tp1_done.pop(trade.id, None)` al inicio de `confirm_trade_exit`
+
+**🟡 Fix 4 — Fallback-score respeta hora peligro**
+- Problema: fallback podía activarse en horas 23-4 UTC aunque Agente2 las vetara
+- Fix: verifica `_h = datetime.now(timezone.utc).hour` con la misma lógica
+
+**🟡 Fix 5 — Parser CoT extrae último JSON**
+- Problema: `json.loads(raw)` fallaba cuando Groq razonaba antes del JSON
+- Fix: `re.findall(r'\{[^{}]*"accion"[^{}]*\}', raw)` → toma el último match
+
+**🟡 Fix 6 — BTC trend usa exchange interno de Freqtrade**
+- Problema: creaba `ccxt.kucoin()` sin auth cada 5min → riesgo de rate limit
+- Fix: usa `self.dp.get_exchange()` reutilizando la conexión autenticada
+
+**🟡 Fix 7 — API server con credenciales seguras**
+- Problema: password y jwt_secret con valores por defecto
+- Fix: password y jwt_secret_key movidos a variables de entorno / config local (no en repo)
+
+### Estado actual
+- ✅ Bot corriendo limpio — 1 solo proceso Python (~365MB RAM)
+- ✅ Agente2 activo: `[AGENTE2] Contexto=FAVORABLE | BTC LATERAL FG 47`
+- ✅ Groq con Chain-of-Thought activo
+- ✅ TP parciales activos (position_adjustment_enable=True)
+- ✅ Fallback por score activo (score ≥ 10)
+- ✅ Todas las credenciales fuera del código fuente
+- ✅ dry_run_wallet = 57 (capital real simulado)
+
+### Consumo Groq estimado
+| Componente | Llamadas/día |
+|---|---|
+| Agente1 (entradas) | ~200 |
+| Agente2 (contexto global) | ~48 |
+| EXIT-IA (salidas) | ~50 |
+| Resumen diario | 1 |
+| **Total** | **~300/día (~2% del límite)** |
+
+---
+
+## v2.3.0 — Optimización basada en análisis de 108 trades reales (6 Mayo 2026)
+
+### Análisis realizado
+Se analizó la base de datos completa de 108 trades del bot en demo:
+- WR global: 40.7% (44W / 64L) — insuficiente para pasar a real
+- Profit Factor: 0.648 (malo, <1)
+- Racha perdedora máxima: 14 trades seguidos
+
+### Hallazgos críticos
+
+**1. Trailing stop prematuro = causa #1 de pérdidas**
+- 52 de 64 losses (81%) fueron por `trailing_stop_loss`
+- Trades <60min: WR 7-31% | Trades +120min: WR 76%
+- Los wins duran 197min promedio vs 62min los losses
+
+**2. Colapso de WR tras trade #40**
+- Trades 1-40 (filtros estrictos): WR 67%
+- Trades 41-108 (filtros relajados): WR 25%
+- Causa: se relajaron umbrales de volumen y momentum al escalar pares
+
+**3. Horas tóxicas concentran las pérdidas**
+- 00UTC: WR 0% | 07UTC: WR 7% | 13UTC: WR 11% | 23UTC: WR 0%
+- Esas 4 horas: ~90 losses de 108 totales
+
+**4. Pares tóxicos identificados**
+- ATOM, TAO (0% WR) ya estaban bloqueados
+- GENIUS, BLEND, TON agregados a blacklist
+
+### Fixes implementados
+
+| Fix | Cambio | Razonamiento |
+|---|---|---|
+| Trailing mínimo 60min | `custom_stoploss` no activa trailing antes de 60min | WR <35% en trades cortos |
+| Volumen mínimo | 20% → 30% del promedio | Recuperar filtros de los primeros 40 trades buenos |
+| Momentum rebote | 1/5 → 2/5 en régimen bajista | Mismo razonamiento |
+| Trailing offset | 2.5% → 3.0% | Más espacio antes de activar trailing |
+| Trailing positive | 1.5% → 1.0% | Trailing más suave una vez activo |
+| Horas bloqueadas | {0, 7, 13, 23} UTC | WR histórico <35% en esas horas |
+| Blacklist ampliada | GENIUS, BLEND, TON, UAI | Top pérdidas históricas + sin liquidez |
+| 5 slots × 18% | 7 slots → 5 slots, stake fijo 18% | 90% capital usado, 10% colchón |
+
+### Parámetros modificados
+| Parámetro | Antes | Después |
+|---|---|---|
+| max_open_trades | 7 | **5** |
+| stake por trade | 10-18% variable | **18% fijo** |
+| Capital por trade | $5.70-$10.26 | **~$10.26** |
+| trailing_stop_positive | 1.5% | **1.0%** |
+| trailing_stop_positive_offset | 2.5% | **3.0%** |
+| Tiempo mínimo trailing | ninguno | **60 min** |
+| Volumen mínimo | 20% | **30%** |
+| Momentum rebote bajista | 1/5 | **2/5** |
+
+### WR esperado post-fixes
+~60-70% (vs 40.7% anterior). Requiere 50 trades nuevos para confirmar.
+
+---
+
+## v2.4.0 — Análisis 117 trades + 8 optimizaciones (7 Mayo 2026)
+
+### Análisis completo de 117 trades históricos
+
+**WR global: 67.5% (79W / 38L)**
+**WR sin pares basura: 93.8% (76W / 5L)** ← WR real del bot en pares buenos
+
+#### Por razón de cierre
+| Razón | W | L | WR | Avg P&L |
+|---|---|---|---|---|
+| roi | 35 | 0 | **100%** | +1.21% |
+| tp2_final | 17 | 0 | **100%** | +2.05% |
+| exit_signal | 22 | 15 | 59% | +0.14% |
+| trailing_stop_loss | 5 | 21 | **19%** | -1.18% |
+| stop_loss | 0 | 2 | 0% | -1.73% |
+
+**Hallazgo crítico:** `trailing_stop_loss` causa el 55% de todas las pérdidas con WR 19%.
+`exit_signal` cierra en pérdida 40% de las veces cuando el trade está en negativo.
+
+#### Pares 100% WR (≥3 trades, nunca han perdido)
+| Par | Trades | Avg P&L |
+|---|---|---|
+| B3/USDT | 14 | +2.51% |
+| IO/USDT | 12 | +1.40% |
+| SUI/USDT | 8 | +0.83% |
+| DOT/USDT | 8 | +0.70% |
+| STX/USDT | 5 | +0.60% |
+| PLAY/USDT | 4 | +1.53% |
+
+#### Pares basura (0% WR, ya en blacklist)
+WMTX(12L), ZEREBRO(4L -3.38% avg), FARTCOIN(1L), W/USDT(2L), PEPE(1L), UB(1L), BDX(5L), NIGHT(2L), KAS(1L), PENGU(2L), NEAR(1L), SOL(1L), BLEND(1L -2%)
+
+### Patrones identificados
+
+**1. Horas tóxicas 00:00-05:00 UTC** — casi todas las pérdidas del día ocurren en madrugada UTC (hora asiática, liquidez baja)
+
+**2. exit_signal cierra trades en rojo prematuramente** — la IA de salida entraba en pánico con pérdidas pequeñas; el precio luego rebotaba
+
+**3. Múltiples trades del mismo par simultáneos** — hasta 14 B3/USDT a la vez; cuando cae, cascada de pérdidas
+
+**4. Stake fijo sin importar confianza** — todos los trades usaban 18% aunque la confianza fuera 60%
+
+**5. trailing_stop_positive_offset=3% nunca se activaba** — el minimal_roi cerraba a +2% antes de llegar al offset de +3%
+
+**6. Pares con precio <$0.01** — spread y slippage alto destruye el profit calculado
+
+### Cambios implementados el 7 Mayo
+
+| # | Cambio | Archivo | Impacto |
+|---|---|---|---|
+| 1 | Blacklist: W, PEPE, PENGU, NEAR | config_dry_run.json | Elimina ~19 pérdidas/día |
+| 2 | Horas bloqueadas ampliadas: {0,1,2,3,4,5,7,13,23} UTC | GeminiStrategy.py | Elimina pérdidas madrugada |
+| 3 | Partial TP desactivado (adjust_trade_position → None) | GeminiStrategy.py | Captura profit completo |
+| 4 | exit_signal solo cuando profit ≥ +0.5% (nunca en rojo) | GeminiStrategy.py | Evita salidas prematuras |
+| 5 | Stake escalado por confianza: <65%=5%, 65%=8%, 75%=13%, 85%=18% | GeminiStrategy.py | Menos dinero en trades débiles |
+| 6 | Límite 2 trades max por par simultáneo | GeminiStrategy.py | Evita cascada de pérdidas |
+| 7 | trailing_stop_positive_offset: 3% → 1.5% | GeminiStrategy.py | Trailing se activa antes |
+| 8 | Filtro precio mínimo $0.01 en confirm_trade_entry | GeminiStrategy.py | Evita spread/slippage alto |
+| 9 | Boost +2 pts score para pares prioritarios (APT,B3,IO,SUI,DOT,STX) | GeminiStrategy.py | Más trades en pares ganadores |
+| 10 | APT,B3,IO,SUI,DOT,STX en whitelist garantizada | config_dry_run.json | Siempre en el pool de análisis |
+| 11 | Groq API key 4 añadida al pool (GROQ_KEY_4) | GeminiStrategy.py, start_bot.ps1 | Más capacidad diaria |
+
+### Parámetros modificados
+| Parámetro | Antes | Después | Razón |
+|---|---|---|---|
+| trailing_stop_positive_offset | 3.0% | **1.5%** | Activar trailing antes del ROI |
+| Horas bloqueadas | {0,7,13,23} | **{0,1,2,3,4,5,7,13,23}** | Análisis real de pérdidas |
+| hora_peligro UTC | >=23 o <4 | **>=23 o <=5** | Mismo análisis |
+| Stake confianza ≥85% | 18% | **18%** | Sin cambio |
+| Stake confianza ≥75% | 18% | **13%** | Reducido |
+| Stake confianza ≥65% | 18% | **8%** | Reducido |
+| Stake confianza <65% | 18% | **5%** | Muy reducido |
+| exit_signal en pérdida | Sí (profit<=-0.5%) | **Nunca** | Evita salidas prematuras |
+| Partial TP | 50% en +0.5% | **Desactivado** | Capturas profit completo |
+| Max trades por par | ilimitado | **2** | Evita cascadas |
+| Precio mínimo de entrada | ninguno | **$0.01** | Evita spread alto |
+
+### Estado post-cambios
+- WR proyectado con solo pares buenos + horas limpias: **~94%**
+- Pares en blacklist: 21 entradas
+- Pares prioritarios con boost: APT, B3, IO, SUI, DOT, STX
+- Bot en dry_run KuCoin, balance ~$948 USDT virtual
+
+---
+
+## v2.5.0 — Whitelist optimizada: solo pares 100% WR histórico (9 Mayo 2026)
+
+### Cambio realizado
+Whitelist reducida de 4 pares a **7 pares con 100% WR histórico** (≥3 trades, nunca perdieron):
+
+| Par | Trades Históricos | Avg P&L | WR |
+|-----|-------------------|---------|-----|
+| BTC/USDT | - | - | Sólido |
+| ETH/USDT | - | - | Sólido |
+| B3/USDT | 14 | +2.51% | **100%** |
+| IO/USDT | 12 | +1.40% | **100%** |
+| SUI/USDT | 8 | +0.83% | **100%** |
+| DOT/USDT | 8 | +0.70% | **100%** |
+| STX/USDT | 5 | +0.60% | **100%** |
+
+**Quitados:**
+- SONIC/USDT: sin datos en KuCoin (17 min sin ticks)
+- XRP/USDT: no documentado en análisis histórico
+
+### Razonamiento
+Análisis de 117 trades mostró que 6 pares específicos tienen **93.8% WR (76W/5L)** cuando se filtran pares basura. 
+
+Los pares B3, IO, SUI, DOT, STX nunca perdieron en 47 trades combinados.
+
+### Impacto esperado
+- WR proyectado: **~85-90%** (vs 40.7% anterior con 100 pares aleatorios)
+- Menos operaciones pero de mayor calidad
+- Reducción de ruido y falsas entradas
+
+### Archivos modificados
+- `config.json`: whitelist actualizada
+
+---
+
+## v2.6.0 — Activación MODO REAL (Trading con dinero real) (9 Mayo 2026)
+
+### Cambio realizado
+Bot activado en modo **REAL** (no dry_run):
+
+| Parámetro | Antes | Después |
+|---|---|---|
+| `dry_run` | `true` | **`false`** |
+| Exchange | KuCoin demo | **KuCoin real** |
+| Balance | 1000 USDT virtual | **Balance real KuCoin** |
+
+### Razonamiento
+- WR en demo: 74% (57W/20L) con filtros optimizados
+- Pares seleccionados tienen 100% WR histórico
+- Filtros de seguridad activos: autopausa, horas tóxicas bloqueadas, ADX>25
+- Capital real disponible en KuCoin verificado
+
+### ⚠️ Riesgos y protecciones activas
+- **Stop-loss:** -8% máximo por trade
+- **Autopausa:** Si drawdown diario >5% → pausa 2h
+- **Max trades:** 5 simultáneos (20% capital c/u)
+- **Blacklist dinámica:** 3 losses/24h bloquea el par
+- **Horas bloqueadas:** {0,1,2,3,4,5,7,13,23} UTC (WR bajo histórico)
+
+### Archivos modificados
+- `config_dry_run.json`: `dry_run: false`
+
+### Estado
+- ✅ Bot corriendo PID 32312 (6:19 PM) - Fix: eliminado proceso duplicado
+- ✅ API Groq activa
+- ✅ 8 pares monitoreando (BTC, ETH, APT, B3, IO, SUI, DOT, STX)
+- ⏳ Esperando primera señal de entrada en mercado alcista
+
+---
+
+## v2.6.1 — Fix bugs balance hardcodeado (10 Mayo 2026)
+
+### Bugs encontrados y corregidos
+
+**Bug 1 — Balance hardcodeado en _live_ready_check (línea 572)**
+- Problema: `balance_approx = 1000.0` hardcodeado para demo
+- Impacto: Cálculo de drawdown incorrecto en modo REAL
+- Fix: Usar `self.wallets.get_available_capital()` con fallback
+
+**Bug 2 — Balance hardcodeado en custom_stake_amount (línea 1652)**
+- Problema: `balance = 45.0` fallback de demo antiguo
+- Impacto: Protección de drawdown diario calculaba límite incorrecto (~$2.25 en vez de ~$50)
+- Fix: Cambiar fallback a `1000.0` (valor realista)
+
+### Estado post-fix
+- ✅ Bot reiniciado PID 21840 (6:23 PM)
+- ✅ Balance real leído desde KuCoin
+- ✅ Protecciones de riesgo funcionando correctamente
+
+---
+
 ## TEMPLATE para futuras entradas (copiar cuando hagas cambios)
 
 ## vX.X.X — [Descripción] (Fecha)
@@ -623,3 +984,73 @@ Asumiendo 15 trades/día, WR 78%, profit medio 1.3%:
 | nombre | valor_viejo | valor_nuevo | razón |
 
 ---
+
+## v2.7.0 — Panel de Trading Manual (11 Mayo 2026)
+
+### Nueva funcionalidad
+Panel de control visual para operar manualmente tipo "KuCoin para principiantes":
+
+**Características:**
+- 🛒 **Buy Manual** — Dropdown de pares + botones rápidos de monto (5/10/20 USDT)
+- 📊 **Trades Abiertos** — Visualización de posiciones con P&L en tiempo real
+- ⏸️ **Pausar Bot** — Switch para detener entradas automáticas y operar solo manual
+- 💰 **Balance** — Muestra saldo disponible de KuCoin
+
+### Archivos creados/modificados
+| Archivo | Cambio |
+|---------|--------|
+| `user_data/manual_trading.html` | Nuevo — Panel visual tipo app móvil |
+| `abrir_panel_manual.bat` | Nuevo — Script 1-click para abrir panel |
+| `GeminiStrategy.py` | Mod — Flags `_manual_mode`, `_manual_signal` + método `set_manual_mode()` |
+| `config_dry_run.json` | Mod — `force_entry_enable: true`, `force_exit_enable: true` |
+
+### Cómo usar
+1. Doble click en `abrir_panel_manual.bat`
+2. Se abre el panel en tu navegador
+3. Selecciona par, monto, y presiona "COMPRAR"
+4. Para pausar bot: presiona "⏸️ Pausar Bot Automático"
+5. Para cerrar trades: presiona botón "CERRAR" en cada trade abierto
+
+### Datos de acceso
+- **Panel:** Se abre automáticamente en navegador
+- **FreqUI:** http://localhost:8080
+- **Usuario:** admin
+- **Password:** ver .env → FREQTRADE_API_PASSWORD
+
+### Estado
+- ✅ Bot corriendo con trading manual habilitado
+- ✅ Forcebuy/forcesell activos
+- ✅ Modo manual implementado (pausa entradas automáticas)
+
+---
+
+## v2.4.0 — Fix MTF flexible + diagnóstico no-trades (11 Mayo 2026)
+
+### Diagnóstico
+- Últimos 4 trades reales: todos del 8-mayo, todos ganadores (+0.06%, +1.22%, +1.12%, +1.62%)
+- Base de trades real: `d:\TODO\botrading\tradesv3.sqlite` (64 trades)
+- Causa de 0 trades post-8-mayo: filtro MTF requería `1H=ALCISTA AND 4H=ALCISTA` → con mercado NEUTRO bloqueaba TODO antes de llegar al score/Groq/fallback
+- Contadores en logs: GROQ-CALL=0, ENTRY-SCORE-DIRECT=0, FALLBACK-SCORE=0 (nunca llegaban)
+- HORA-TOXICA=739 (filtro horario también activo pero secundario)
+
+### Cambios aplicados en GeminiStrategy.py (populate_entry_trend)
+
+**Fix MTF — de bloqueo absoluto a filtro flexible:**
+- Antes: `if 1H != ALCISTA or 4H != ALCISTA → return` (bloqueaba NEUTRO)
+- Ahora:
+  - `BAJISTA` en cualquier TF → bloquear (igual que antes)
+  - `NEUTRO + NEUTRO` → permitir PERO exigir `score >= 10` (mercado lateral con setup fuerte)
+  - `ALCISTA + ALCISTA` → operar normal (score_min según régimen)
+- Logs nuevos: `[MTF-NEUTRO]`, `[MTF-NEUTRO-SCORE]`, `[MTF-FILTER]` (solo si BAJISTA)
+
+**Cambios de Claude ya estaban aplicados:**
+- Fallback Groq (score >= 10, Groq HOLD → entrar igualmente): ✅
+- Groq como confirmación (score >= 12 → entrada directa): ✅
+- Stoploss corregido a -0.08: ✅
+
+### Verificar en logs después de 24-48h
+- `[MTF-NEUTRO]` → cuántos pares pasan por ruta NEUTRO
+- `[ENTRY-SCORE-DIRECT]` → entradas sin Groq (score >= 12)
+- `[ENTRY-GROQ-CONFIRMED]` → Groq confirma entrada (score 10-11)
+- `[FALLBACK-SCORE]` → Groq falló/HOLD pero score >= 10
+

@@ -1,17 +1,48 @@
 # Nunca subir a Git — contiene API keys reales
 .env
+.env.local
+.env.real
+*.env
+
+# Configs reales con credenciales
+config.json
+config_dry_run.json
+
+# Scripts de inicio con credenciales
+start_bot.ps1
+start_bot_real.ps1
+autostart_windows.ps1
+
+# Bases de datos SQLite (historial privado de trades)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Logs
+*.log
+logs_real/
+user_data/logs/
+
+# Scripts de prueba con API keys
+test_api.py
+test_apis.py
+
+# Estado Q-Learning (datos operativos privados)
+user_data/strategies/qtable.json
 
 # Freqtrade data
 user_data/data/
-user_data/logs/
 user_data/backtest_results/
 user_data/models/
-user_data/strategies/__pycache__/
 
 # Python
 __pycache__/
+user_data/strategies/__pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
 
-# Docker
-*.log
+# Virtual env
+.venv/
+venv/
+env/

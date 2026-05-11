@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 GeminiBot - Trading Manual</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 2px solid #00d4aa;
+            margin-bottom: 25px;
+        }
+        .header h1 {
+            font-size: 28px;
+            background: linear-gradient(90deg, #00d4aa, #00a8ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            background: rgba(255,255,255,0.05);
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .status-item {
+            text-align: center;
+        }
+        .status-label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .status-value {
+            font-size: 18px;
+            font-weight: 700;
+            margin-top: 5px;
+        }
+        .bot-status { color: #00d4aa; }
+        .bot-status.paused { color: #ff6b6b; }
+        .balance { color: #ffd93d; }
+        
+        .card {
+            background: rgba(255,255,255,0.03);
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .card-title {
+            font-size: 14px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 18px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .btn-buy {
+            background: linear-gradient(135deg, #00d4aa, #00a87a);
+            color: #000;
+        }
+        .btn-buy:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,212,170,0.3); }
+        .btn-sell {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+            color: #fff;
+        }
+        .btn-sell:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(255,107,107,0.3); }
+        .btn-pause {
+            background: rgba(255,193,7,0.15);
+            border: 2px solid #ffc107;
+            color: #ffc107;
+        }
+        .btn-pause:hover { background: rgba(255,193,7,0.25); }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        select, input {
+            width: 100%;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(0,0,0,0.3);
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        select option { background: #1a1a2e; color: #fff; }
+        
+        .open-trades {
+            background: rgba(0,212,170,0.05);
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        .trade-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        .trade-pair { font-weight: 600; }
+        .trade-amount { color: #888; font-size: 14px; }
+        .trade-pnl { font-weight: 700; }
+        .pnl-positive { color: #00d4aa; }
+        .pnl-negative { color: #ff6b6b; }
+        .close-btn {
+            background: #ff6b6b;
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .message {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 10px;
+            font-weight: 600;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+        }
+        .msg-success { background: #00d4aa; color: #000; }
+        .msg-error { background: #ff6b6b; color: #fff; }
+        .msg-info { background: #00a8ff; color: #fff; }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        .quick-amounts {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .risk-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .risk-row input {
+            flex: 1;
+            margin-bottom: 0;
+        }
+        .live-price {
+            background: rgba(0,212,170,0.1);
+            padding: 12px 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border: 1px solid rgba(0,212,170,0.3);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .price-label { color: #888; font-size: 12px; }
+        .price-value { font-size: 20px; font-weight: 700; color: #00d4aa; }
+        .price-change { font-size: 12px; padding: 4px 8px; border-radius: 4px; }
+        .change-up { background: rgba(0,212,170,0.2); color: #00d4aa; }
+        .change-down { background: rgba(255,107,107,0.2); color: #ff6b6b; }
+        .last-update { text-align: center; color: #666; font-size: 11px; margin-top: 5px; }
+        
+        /* Mini Gráfico de Velas */
+        .mini-chart-container {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .mini-chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .mini-chart-title { color: #888; font-size: 12px; }
+        .mini-chart-timeframe { 
+            background: rgba(0,212,170,0.2); 
+            color: #00d4aa; 
+            padding: 2px 8px; 
+            border-radius: 4px; 
+            font-size: 11px;
+        }
+        .mini-chart-canvas {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.1) 100%);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .mini-legend {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 8px;
+            font-size: 11px;
+        }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .legend-color { width: 8px; height: 8px; border-radius: 2px; }
+        .legend-up { background: #00d4aa; }
+        .legend-down { background: #ff6b6b; }
+        
+        .quick-btn {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(0,0,0,0.2);
+            color: #fff;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .quick-btn:hover { background: rgba(0,212,170,0.2); border-color: #00d4aa; }
+        .quick-btn.active { background: #00d4aa; color: #000; border-color: #00d4aa; }
+        
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+        .empty-state-icon { font-size: 48px; margin-bottom: 10px; }
+        
+        /* Historial de trades */
+        .history-card { max-height: 300px; overflow-y: auto; }
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        .history-pair { font-weight: 600; }
+        .history-pnl { font-weight: 700; }
+        .pnl-win { color: #00d4aa; }
+        .pnl-loss { color: #ff6b6b; }
+        .history-time { color: #666; font-size: 11px; }
+        .view-more {
+            text-align: center;
+            color: #00d4aa;
+            cursor: pointer;
+            padding: 10px;
+            font-size: 13px;
+        }
+        
+        /* Modal de confirmación */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal-content {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            border-radius: 16px;
+            padding: 25px;
+            max-width: 350px;
+            width: 90%;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .modal-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .modal-label { color: #888; }
+        .modal-value { font-weight: 600; }
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .modal-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .btn-confirm { background: #00d4aa; color: #000; }
+        .btn-cancel { background: rgba(255,255,255,0.1); color: #fff; }
+        
+        /* Notificaciones toast */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 3000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            padding: 15px 20px;
+            border-radius: 10px;
+            font-weight: 600;
+            animation: slideIn 0.3s ease;
+            max-width: 300px;
+        }
+        .toast-success { background: #00d4aa; color: #000; }
+        .toast-error { background: #ff6b6b; color: #fff; }
+        .toast-warning { background: #ffc107; color: #000; }
+        .toast-info { background: #00a8ff; color: #fff; }
+        
+        /* Sparkline */
+        .sparkline-container {
+            width: 100%;
+            height: 60px;
+            margin-bottom: 10px;
+        }
+        .sparkline {
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Toggle sonido */
+        .sound-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 10px 15px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .toggle-switch {
+            width: 44px;
+            height: 24px;
+            background: #333;
+            border-radius: 12px;
+            position: relative;
+            transition: background 0.3s;
+        }
+        .toggle-switch.active { background: #00d4aa; }
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #fff;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: left 0.3s;
+        }
+        .toggle-switch.active::after { left: 22px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🤖 GeminiBot</h1>
+            <p style="color: #888; margin-top: 5px;">Trading Manual</p>
+        </div>
+        
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-label">Estado Bot</div>
+                <div class="status-value bot-status" id="botStatus">🟢 Activo</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Balance</div>
+                <div class="status-value balance" id="balance">-- USDT</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Trades Abiertos</div>
+                <div class="status-value" id="openTrades">0</div>
+            </div>
+        </div>
+        
+        <!-- Comprar -->
+        <div class="card">
+            <div class="card-title">🛒 Comprar</div>
+            <select id="pairSelect">
+                <option value="">Selecciona un par...</option>
+                <option value="BTC/USDT">Bitcoin (BTC/USDT)</option>
+                <option value="ETH/USDT">Ethereum (ETH/USDT)</option>
+                <option value="APT/USDT">Aptos (APT/USDT)</option>
+                <option value="SUI/USDT">Sui (SUI/USDT)</option>
+                <option value="DOT/USDT">Polkadot (DOT/USDT)</option>
+                <option value="B3/USDT">B3 (B3/USDT)</option>
+                <option value="IO/USDT">IO.NET (IO/USDT)</option>
+                <option value="STX/USDT">Stacks (STX/USDT)</option>
+            </select>
+            <!-- Mini Gráfico de Velas -->
+            <div class="mini-chart-container">
+                <div class="mini-chart-header">
+                    <div class="mini-chart-title">📊 Gráfico de Velas - Timeframe 5M (últimas 20 velas)</div>
+                    <div class="mini-chart-timeframe">5M</div>
+                </div>
+                <canvas id="miniChart" class="mini-chart-canvas"></canvas>
+                <div class="mini-legend">
+                    <div class="legend-item">
+                        <div class="legend-color legend-up"></div>
+                        <span>Alcista</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color legend-down"></div>
+                        <span>Bajista</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Precio en vivo -->
+            <div class="live-price" id="livePrice">
+                <div>
+                    <div class="price-label">💰 Precio Actual</div>
+                    <div class="price-value" id="currentPrice">--.--</div>
+                </div>
+                <div class="price-change change-up" id="priceChange">+0.00%</div>
+            </div>
+            <div class="last-update" id="lastUpdate">Actualizado: --</div>
+            
+            <div class="quick-amounts">
+                <button class="quick-btn" onclick="setAmount(5)">5 USDT</button>
+                <button class="quick-btn" onclick="setAmount(10)">10 USDT</button>
+                <button class="quick-btn" onclick="setAmount(20)">20 USDT</button>
+            </div>
+            <input type="number" id="amountInput" placeholder="Monto en USDT (ej: 10)" min="1" max="100">
+            
+            <!-- SL y TP -->
+            <div class="risk-row">
+                <input type="number" id="slInput" placeholder="Stop Loss % (ej: -8)" value="-8" min="-50" max="0">
+                <input type="number" id="tpInput" placeholder="Take Profit % (ej: 4)" value="4" min="0" max="100">
+            </div>
+            <p style="color: #888; font-size: 11px; margin-bottom: 15px;">
+                💡 SL = máxima pérdida permitida | TP = ganancia objetivo
+            </p>
+            
+            <button class="btn btn-buy" onclick="buyManual()">
+                🚀 COMPRAR AHORA
+            </button>
+        </div>
+        
+        <!-- Trades Abiertos -->
+        <div class="card">
+            <div class="card-title">📊 Trades Abiertos</div>
+            <div id="tradesList" class="open-trades">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📭</div>
+                    <p>No hay trades abiertos</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Toggle Sonido -->
+        <div class="sound-toggle" onclick="toggleSound()">
+            <span id="soundIcon">🔊</span>
+            <span>Alertas Sonoras</span>
+            <div class="toggle-switch active" id="soundToggle"></div>
+        </div>
+        
+        <!-- Historial de Trades -->
+        <div class="card history-card">
+            <div class="card-title">📜 Historial (últimos 10)</div>
+            <div id="historyList">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📚</div>
+                    <p>Sin trades cerrados aún</p>
+                </div>
+            </div>
+            <div class="view-more" onclick="loadMoreHistory()" id="viewMoreBtn" style="display:none;">
+                Ver más trades ↓
+            </div>
+        </div>
+        
+        <!-- Control Bot -->
+        <div class="card">
+            <div class="card-title">⚙️ Control del Bot</div>
+            <button class="btn btn-pause" id="pauseBtn" onclick="toggleBot()">
+                ⏸️ Pausar Bot Automático
+            </button>
+            <p style="color: #888; font-size: 12px; margin-top: 15px; text-align: center;">
+                Al pausar, el bot no hará entradas automáticas pero puedes operar manualmente
+            </p>
+        </div>
+        
+        <!-- Info -->
+        <div style="text-align: center; color: #666; font-size: 12px; margin-top: 30px;">
+            <p>Frecuencia UI en <a href="http://localhost:8080" style="color: #00d4aa;">localhost:8080</a></p>
+            <p style="margin-top: 5px;">Panel creado para GeminiBot 🤖</p>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmación -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal-content">
+            <div class="modal-title">⚠️ Confirmar Orden</div>
+            <div class="modal-row">
+                <span class="modal-label">Par:</span>
+                <span class="modal-value" id="modalPair">--</span>
+            </div>
+            <div class="modal-row">
+                <span class="modal-label">Monto:</span>
+                <span class="modal-value" id="modalAmount">-- USDT</span>
+            </div>
+            <div class="modal-row">
+                <span class="modal-label">Precio actual:</span>
+                <span class="modal-value" id="modalPrice">--</span>
+            </div>
+            <div class="modal-row">
+                <span class="modal-label">Stop Loss:</span>
+                <span class="modal-value" id="modalSL">--</span>
+            </div>
+            <div class="modal-row">
+                <span class="modal-label">Take Profit:</span>
+                <span class="modal-value" id="modalTP">--</span>
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-btn btn-confirm" onclick="confirmBuy()">✅ Confirmar</button>
+                <button class="modal-btn btn-cancel" onclick="closeModal()">❌ Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // Configuración
+        const API_URL = 'http://localhost:8080/api/v1';
+        const USER = 'admin';
+        const PASS = 'cambia-esta-password';
+        
+        let botPaused = false;
+        let openTradesData = [];
+        let lastPrice = 0;
+        let priceHistory = {};
+        
+        // Actualizar datos cada 5 segundos
+        setInterval(updateStatus, 5000);
+        setInterval(updateLivePrice, 3000); // Precio cada 3 segundos
+        updateStatus();
+        
+        // Escuchar cambio de par para actualizar precio
+        document.getElementById('pairSelect').addEventListener('change', updateLivePrice);
+        
+        async function updateStatus() {
+            try {
+                const response = await fetch(`${API_URL}/status`, {
+                    headers: {
+                        'Authorization': 'Basic ' + btoa(USER + ':' + PASS)
+                    }
+                });
+                const data = await response.json();
+                
+                document.getElementById('balance').textContent = 
+                    data.balance ? data.balance.toFixed(2) + ' USDT' : '-- USDT';
+                document.getElementById('openTrades').textContent = 
+                    data.open_trades ? data.open_trades.length : '0';
+                
+                // Actualizar trades abiertos
+                if (data.open_trades && data.open_trades.length > 0) {
+                    renderTrades(data.open_trades);
+                }
+            } catch (e) {
+                console.log('Error updating status:', e);
+            }
+        }
+        
+        function renderTrades(trades) {
+            const container = document.getElementById('tradesList');
+            if (trades.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <p>No hay trades abiertos</p>
+                    </div>`;
+                return;
+            }
+            
+            container.innerHTML = trades.map(trade => {
+                const pnl = trade.profit_pct || 0;
+                const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+                const pnlIcon = pnl >= 0 ? '📈' : '📉';
+                
+                return `
+                    <div class="trade-item">
+                        <div>
+                            <div class="trade-pair">${trade.pair}</div>
+                            <div class="trade-amount">${trade.stake_amount?.toFixed(2) || '--'} USDT</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div class="trade-pnl ${pnlClass}">${pnlIcon} ${pnl.toFixed(2)}%</div>
+                            <button class="close-btn" onclick="closeTrade('${trade.trade_id}')">CERRAR</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function setAmount(amount) {
+            document.getElementById('amountInput').value = amount;
+            document.querySelectorAll('.quick-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+        
+        async function updateLivePrice() {
+            const pair = document.getElementById('pairSelect').value;
+            if (!pair) {
+                document.getElementById('currentPrice').textContent = '--.--';
+                document.getElementById('priceChange').textContent = '+0.00%';
+                return;
+            }
+            
+            try {
+                // Obtener 20 velas de 5m para el mini-gráfico
+                const response = await fetch(`${API_URL}/pair_candles?pair=${pair}&timeframe=5m&limit=20`, {
+                    headers: { 'Authorization': 'Basic ' + btoa(USER + ':' + PASS) }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.candles && data.candles.length > 0) {
+                        const candles = data.candles;
+                        const current = candles[candles.length - 1].close;
+                        const previous = candles[candles.length - 2]?.close || current;
+                        
+                        // Calcular cambio porcentual
+                        const change = ((current - previous) / previous) * 100;
+                        const changeClass = change >= 0 ? 'change-up' : 'change-down';
+                        const changeSign = change >= 0 ? '+' : '';
+                        
+                        document.getElementById('currentPrice').textContent = current.toFixed(4);
+                        const changeEl = document.getElementById('priceChange');
+                        changeEl.textContent = `${changeSign}${change.toFixed(2)}%`;
+                        changeEl.className = `price-change ${changeClass}`;
+                        
+                        document.getElementById('lastUpdate').textContent = 
+                            `Actualizado: ${new Date().toLocaleTimeString()}`;
+                        
+                        lastPrice = current;
+                        
+                        // Dibujar mini-gráfico
+                        renderMiniChart(candles);
+                    }
+                }
+            } catch (e) {
+                console.log('Error obteniendo precio:', e);
+            }
+        }
+        
+        function renderMiniChart(candles) {
+            const canvas = document.getElementById('miniChart');
+            const ctx = canvas.getContext('2d');
+            
+            // Ajustar tamaño del canvas
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            
+            const width = canvas.width;
+            const height = canvas.height;
+            const padding = 10;
+            
+            // Encontrar min y max para escalar
+            const highs = candles.map(c => c.high);
+            const lows = candles.map(c => c.low);
+            const maxPrice = Math.max(...highs);
+            const minPrice = Math.min(...lows);
+            const priceRange = maxPrice - minPrice || 1;
+            
+            // Limpiar canvas
+            ctx.clearRect(0, 0, width, height);
+            
+            // Dibujar grid sutil
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.lineWidth = 1;
+            for (let i = 1; i < 4; i++) {
+                const y = padding + (height - 2 * padding) * (i / 4);
+                ctx.beginPath();
+                ctx.moveTo(padding, y);
+                ctx.lineTo(width - padding, y);
+                ctx.stroke();
+            }
+            
+            // Dibujar velas
+            const candleWidth = (width - 2 * padding) / candles.length * 0.7;
+            const spacing = (width - 2 * padding) / candles.length;
+            
+            candles.forEach((candle, i) => {
+                const x = padding + i * spacing + spacing / 2;
+                const open = candle.open;
+                const close = candle.close;
+                const high = candle.high;
+                const low = candle.low;
+                
+                // Calcular posiciones Y
+                const yOpen = padding + (1 - (open - minPrice) / priceRange) * (height - 2 * padding);
+                const yClose = padding + (1 - (close - minPrice) / priceRange) * (height - 2 * padding);
+                const yHigh = padding + (1 - (high - minPrice) / priceRange) * (height - 2 * padding);
+                const yLow = padding + (1 - (low - minPrice) / priceRange) * (height - 2 * padding);
+                
+                // Color según si subió o bajó
+                const isUp = close >= open;
+                ctx.fillStyle = isUp ? '#00d4aa' : '#ff6b6b';
+                ctx.strokeStyle = isUp ? '#00d4aa' : '#ff6b6b';
+                
+                // Dibujar mecha (high-low)
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x, yHigh);
+                ctx.lineTo(x, yLow);
+                ctx.stroke();
+                
+                // Dibujar cuerpo de la vela
+                const bodyTop = Math.min(yOpen, yClose);
+                const bodyHeight = Math.abs(yClose - yOpen) || 1;
+                ctx.fillRect(x - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
+            });
+            
+            // Dibujar línea de tendencia
+            ctx.strokeStyle = candles[candles.length - 1].close >= candles[0].open ? 'rgba(0,212,170,0.5)' : 'rgba(255,107,107,0.5)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            candles.forEach((candle, i) => {
+                const x = padding + i * spacing + spacing / 2;
+                const y = padding + (1 - (candle.close - minPrice) / priceRange) * (height - 2 * padding);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        }
+        
+        async function buyManual() {
+            const pair = document.getElementById('pairSelect').value;
+            const amount = parseFloat(document.getElementById('amountInput').value);
+            const sl = parseFloat(document.getElementById('slInput').value) || -8;
+            const tp = parseFloat(document.getElementById('tpInput').value) || 4;
+            
+            if (!pair) {
+                showMessage('⚠️ Selecciona un par primero', 'error');
+                return;
+            }
+            if (!amount || amount <= 0) {
+                showMessage('⚠️ Ingresa un monto válido', 'error');
+                return;
+            }
+            
+            // Calcular precios de SL y TP
+            const currentPrice = lastPrice || 0;
+            const slPrice = currentPrice ? currentPrice * (1 + sl/100) : 0;
+            const tpPrice = currentPrice ? currentPrice * (1 + tp/100) : 0;
+            
+            // Mostrar modal de confirmación
+            document.getElementById('modalPair').textContent = pair;
+            document.getElementById('modalAmount').textContent = amount + ' USDT';
+            document.getElementById('modalPrice').textContent = currentPrice ? currentPrice.toFixed(4) : '--';
+            document.getElementById('modalSL').textContent = sl + '% (' + (slPrice > 0 ? slPrice.toFixed(2) : '--') + ')';
+            document.getElementById('modalTP').textContent = tp + '% (' + (tpPrice > 0 ? tpPrice.toFixed(2) : '--') + ')';
+            document.getElementById('confirmModal').classList.add('active');
+            
+            // Guardar datos para confirmación
+            window.pendingOrder = { pair, amount, sl, tp, slPrice, tpPrice };
+        }
+        
+        function closeModal() {
+            document.getElementById('confirmModal').classList.remove('active');
+            window.pendingOrder = null;
+        }
+        
+        async function confirmBuy() {
+            const order = window.pendingOrder;
+            if (!order) return;
+            
+            closeModal();
+            
+            try {
+                const response = await fetch(`${API_URL}/forcebuy`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Basic ' + btoa(USER + ':' + PASS)
+                    },
+                    body: JSON.stringify({ 
+                        pair: order.pair, 
+                        amount: order.amount,
+                        stoploss: order.slPrice > 0 ? order.slPrice : undefined,
+                        takeprofit: order.tpPrice > 0 ? order.tpPrice : undefined
+                    })
+                });
+                
+                if (response.ok) {
+                    playSound('success');
+                    showToast(`✅ Orden ejecutada: ${order.pair}`, 'success');
+                    document.getElementById('pairSelect').value = '';
+                    document.getElementById('amountInput').value = '';
+                    document.getElementById('currentPrice').textContent = '--.--';
+                    setTimeout(updateStatus, 2000);
+                } else {
+                    playSound('error');
+                    const error = await response.text();
+                    showToast(`❌ Error: ${error}`, 'error');
+                }
+            } catch (e) {
+                playSound('error');
+                showToast('❌ Error de conexión', 'error');
+            }
+        }
+        
+        async function closeTrade(tradeId) {
+            if (!confirm('¿Seguro que quieres cerrar este trade?')) return;
+            
+            try {
+                const response = await fetch(`${API_URL}/forcesell`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Basic ' + btoa(USER + ':' + PASS)
+                    },
+                    body: JSON.stringify({ tradeid: tradeId })
+                });
+                
+                if (response.ok) {
+                    showMessage('✅ Trade cerrado', 'success');
+                    setTimeout(updateStatus, 2000);
+                } else {
+                    showMessage('❌ Error al cerrar', 'error');
+                }
+            } catch (e) {
+                showMessage('❌ Error de conexión', 'error');
+            }
+        }
+        
+        function toggleBot() {
+            botPaused = !botPaused;
+            const btn = document.getElementById('pauseBtn');
+            const status = document.getElementById('botStatus');
+            
+            if (botPaused) {
+                btn.innerHTML = '▶️ Reanudar Bot Automático';
+                status.textContent = '⏸️ Pausado';
+                status.classList.add('paused');
+                showMessage('⏸️ Bot pausado - Modo manual activo', 'info');
+            } else {
+                btn.innerHTML = '⏸️ Pausar Bot Automático';
+                status.textContent = '🟢 Activo';
+                status.classList.remove('paused');
+                showMessage('▶️ Bot reanudado', 'success');
+            }
+            
+            // Enviar señal al bot (implementar en strategy)
+            fetch(`${API_URL}/bot_action`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Basic ' + btoa(USER + ':' + PASS)
+                },
+                body: JSON.stringify({ action: botPaused ? 'pause' : 'resume' })
+            }).catch(() => {});
+        }
+        
+        // Toast notifications
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            
+            // Sonido según tipo
+            if (soundEnabled) {
+                if (type === 'success') playSound('success');
+                else if (type === 'error') playSound('error');
+                else if (type === 'warning') playSound('alert');
+            }
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+        
+        // Sonidos
+        let soundEnabled = true;
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playSound(type) {
+            if (!soundEnabled) return;
+            
+            const osc = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            osc.connect(gain);
+            gain.connect(audioContext.destination);
+            
+            if (type === 'success') {
+                osc.frequency.value = 800;
+                gain.gain.value = 0.1;
+                osc.start();
+                osc.stop(audioContext.currentTime + 0.1);
+                setTimeout(() => {
+                    const osc2 = audioContext.createOscillator();
+                    osc2.connect(gain);
+                    osc2.frequency.value = 1200;
+                    osc2.start();
+                    osc2.stop(audioContext.currentTime + 0.1);
+                }, 100);
+            } else if (type === 'error') {
+                osc.frequency.value = 200;
+                gain.gain.value = 0.1;
+                osc.start();
+                osc.stop(audioContext.currentTime + 0.3);
+            } else if (type === 'alert') {
+                osc.frequency.value = 600;
+                gain.gain.value = 0.1;
+                osc.start();
+                osc.stop(audioContext.currentTime + 0.2);
+            }
+        }
+        
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            document.getElementById('soundToggle').classList.toggle('active');
+            document.getElementById('soundIcon').textContent = soundEnabled ? '🔊' : '🔇';
+            showToast(soundEnabled ? '🔊 Alertas sonoras activadas' : '🔇 Alertas sonoras desactivadas', 'info');
+        }
+        
+        // Cargar historial de trades
+        async function loadTradeHistory(limit = 10) {
+            try {
+                const response = await fetch(`${API_URL}/trades?limit=${limit}`, {
+                    headers: { 'Authorization': 'Basic ' + btoa(USER + ':' + PASS) }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    renderHistory(data.trades || []);
+                }
+            } catch (e) {
+                console.log('Error cargando historial:', e);
+            }
+        }
+        
+        function renderHistory(trades) {
+            const container = document.getElementById('historyList');
+            if (trades.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📚</div>
+                        <p>Sin trades cerrados aún</p>
+                    </div>`;
+                return;
+            }
+            
+            container.innerHTML = trades.map(trade => {
+                const pnl = trade.close_profit_pct || 0;
+                const pnlClass = pnl >= 0 ? 'pnl-win' : 'pnl-loss';
+                const pnlIcon = pnl >= 0 ? '🟢' : '🔴';
+                const date = new Date(trade.close_date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                
+                return `
+                    <div class="history-item">
+                        <div>
+                            <span class="history-pair">${trade.pair}</span>
+                            <span class="history-time">${date}</span>
+                        </div>
+                        <span class="history-pnl ${pnlClass}">${pnlIcon} ${pnl > 0 ? '+' : ''}${pnl.toFixed(2)}%</span>
+                    </div>
+                `;
+            }).join('');
+            
+            if (trades.length >= 10) {
+                document.getElementById('viewMoreBtn').style.display = 'block';
+            }
+        }
+        
+        function loadMoreHistory() {
+            loadTradeHistory(20);
+            document.getElementById('viewMoreBtn').style.display = 'none';
+        }
+        
+        // Sparkline SVG
+        function renderSparkline(data) {
+            if (!data || data.length < 2) return '';
+            
+            const width = 100;
+            const height = 40;
+            const min = Math.min(...data);
+            const max = Math.max(...data);
+            const range = max - min || 1;
+            
+            const points = data.map((val, i) => {
+                const x = (i / (data.length - 1)) * width;
+                const y = height - ((val - min) / range) * height;
+                return `${x},${y}`;
+            }).join(' ');
+            
+            const color = data[data.length - 1] >= data[0] ? '#00d4aa' : '#ff6b6b';
+            
+            return `<svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+                <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>`;
+        }
+        
+        // Monitorear SL/TP (simulado - el bot maneja esto realmente)
+        let lastTradesState = [];
+        
+        async function monitorSLTP() {
+            try {
+                const response = await fetch(`${API_URL}/status`, {
+                    headers: { 'Authorization': 'Basic ' + btoa(USER + ':' + PASS) }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const currentTrades = data.open_trades || [];
+                    
+                    // Detectar trades cerrados desde última revisión
+                    const closedTrades = lastTradesState.filter(old => 
+                        !currentTrades.find(curr => curr.trade_id === old.trade_id)
+                    );
+                    
+                    closedTrades.forEach(trade => {
+                        const pnl = trade.profit_pct || 0;
+                        if (pnl >= 0) {
+                            showToast(`🎯 Trade cerrado con ganancia: ${trade.pair} +${pnl.toFixed(2)}%`, 'success');
+                        } else {
+                            showToast(`🛑 Trade cerrado con pérdida: ${trade.pair} ${pnl.toFixed(2)}%`, 'warning');
+                        }
+                    });
+                    
+                    lastTradesState = currentTrades;
+                }
+            } catch (e) {
+                console.log('Error monitoreando SL/TP:', e);
+            }
+        }
+        
+        // Cargar historial al inicio
+        loadTradeHistory();
+        setInterval(loadTradeHistory, 30000); // Recargar cada 30 seg
+        setInterval(monitorSLTP, 5000); // Monitorear SL/TP cada 5 seg
+        
+        function showMessage(text, type) {
+            showToast(text, type);
+        }
+    </script>
+</body>
+</html>
